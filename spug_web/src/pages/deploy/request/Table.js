@@ -5,11 +5,10 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { BranchesOutlined, BuildOutlined, TagOutlined, PlusOutlined } from '@ant-design/icons';
-import { Radio, Modal, Popover, Tag, Popconfirm, message } from 'antd';
+import { BranchesOutlined, BuildOutlined, TagOutlined, PlusOutlined, TagsOutlined } from '@ant-design/icons';
+import { Radio, Modal, Popover, Tag, Popconfirm, Tooltip, message } from 'antd';
 import { http, hasPermission } from 'libs';
 import { Action, AuthButton, TableCard } from 'components';
-import styles from './index.module.less';
 import store from './store';
 
 function ComTable() {
@@ -17,7 +16,9 @@ function ComTable() {
     title: '申请标题',
     render: info => (
       <div>
-        {info.type === '2' && <Tag color="#f50">R</Tag>}
+        {info.type === '2' && <Tooltip title="回滚发布"><Tag color="#f50">R</Tag></Tooltip>}
+        {info.type === '3' && <Tooltip title="Webhook触发"><Tag color="#87d068">A</Tag></Tooltip>}
+        {info.plan && <Tooltip title={`定时发布（${info.plan}）`}> <Tag color="#108ee9">P</Tag></Tooltip>}
         {info.name}
       </div>
     )
@@ -31,17 +32,18 @@ function ComTable() {
     title: '版本',
     render: info => {
       if (info['app_extend'] === '1') {
-        const [ext1] = info.rep_extra;
-        return (
-          <React.Fragment>
-            {ext1 === 'branch' ? <BranchesOutlined/> : <TagOutlined/>} {info.version}
-          </React.Fragment>
-        )
+        const [ext1] = info.extra || info.rep_extra;
+        switch (ext1) {
+          case 'branch':
+            return <div><BranchesOutlined/> {info.version}</div>
+          case 'tag':
+            return <div><TagOutlined/> {info.version}</div>
+          default:
+            return <div><TagsOutlined/> {info.version}</div>
+        }
       } else {
         return (
-          <React.Fragment>
-            <BuildOutlined/> {info.version}
-          </React.Fragment>
+          <div><BuildOutlined/> {info.version}</div>
         )
       }
     }
@@ -76,6 +78,10 @@ function ComTable() {
     sorter: (a, b) => a['created_at'].localeCompare(b['created_at']),
     hide: true
   }, {
+    title: '发布时间',
+    dataIndex: 'do_at',
+    hide: true
+  }, {
     title: '备注',
     dataIndex: 'desc',
   }, {
@@ -89,18 +95,16 @@ function ComTable() {
             <Popconfirm title="确认要执行该发布申请？" onConfirm={e => handleDeploy(e, info)}>
               <Action.Button auth="deploy.request.do">发布</Action.Button>
             </Popconfirm>
-            <Action.Button
-              auth="deploy.request.do"
-              disabled={info.type === '2'}
-              onClick={() => store.rollback(info)}>回滚</Action.Button>
+            {info.visible_rollback && (
+              <Action.Button auth="deploy.request.do" onClick={() => store.rollback(info)}>回滚</Action.Button>
+            )}
           </Action>;
         case '3':
           return <Action>
             <Action.Button auth="deploy.request.do" onClick={() => store.readConsole(info)}>查看</Action.Button>
-            <Action.Button
-              auth="deploy.request.do"
-              disabled={info.type === '2'}
-              onClick={() => store.rollback(info)}>回滚</Action.Button>
+            {info.visible_rollback && (
+              <Action.Button auth="deploy.request.do" onClick={() => store.rollback(info)}>回滚</Action.Button>
+            )}
           </Action>;
         case '-1':
           return <Action>
@@ -145,22 +149,12 @@ function ComTable() {
   }
 
   function handleDeploy(e, info) {
-    const right = document.body.clientWidth - 25 - e.target.getBoundingClientRect().x;
-    const bottom = document.body.clientHeight - 40 - e.target.getBoundingClientRect().y;
-    store.box.setAttribute('style', `display: block; bottom: ${bottom}px; right: ${right}px;`);
-    setTimeout(() => {
-      store.box.setAttribute('class', `${styles.floatBox} ${styles.floatBoxAnimate}`)
-    }, 10);
-    setTimeout(() => {
-      store.showConsole(info);
-      store.box.setAttribute('style', 'display: none');
-      store.box.setAttribute('class', styles.floatBox)
-    }, 300)
-
+    store.showConsole(info);
   }
 
   return (
     <TableCard
+      tKey="dr"
       rowKey="id"
       title="申请列表"
       columns={columns}
@@ -185,7 +179,6 @@ function ComTable() {
       pagination={{
         showSizeChanger: true,
         showLessItems: true,
-        hideOnSinglePage: true,
         showTotal: total => `共 ${total} 条`,
         pageSizeOptions: ['10', '20', '50', '100']
       }}/>

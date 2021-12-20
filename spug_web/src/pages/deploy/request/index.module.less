@@ -82,8 +82,13 @@
     }
 
     .step {
-      width: 600px;
+      flex: 1;
       margin-right: 16px;
+    }
+
+    .codeIcon {
+      font-size: 22px;
+      color: #1890ff;
     }
 
     .icon {
@@ -91,12 +96,6 @@
       font-weight: 300;
       color: #1890ff;
     }
-  }
-
-  .out {
-    min-height: 40px;
-    max-height: 400px;
-    padding: 10px 15px;
   }
 }
 
@@ -106,21 +105,4 @@
 
 .upload :global(.ant-upload-list-item) {
     margin: 0;
-}
-
-.floatBox {
-  display: none;
-  position: fixed;
-  width: 20px;
-  height: 10px;
-  transition: right 0.3s, width 0.3s, height0 .3s, bottom 0.3s ease-in-out;
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 5px;
-}
-
-.floatBoxAnimate {
-  width: 180px;
-  height: 64px;
-  bottom: 12px !important;
-  right: 24px !important;
 }

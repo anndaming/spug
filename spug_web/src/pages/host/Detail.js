@@ -1,7 +1,13 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
 import { Drawer, Descriptions, List, Button, Input, Select, DatePicker, Tag, message } from 'antd';
 import { EditOutlined, SaveOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
+import { AuthButton } from 'components';
 import { http } from 'libs';
 import store from './store';
 import lds from 'lodash';
@@ -38,8 +44,8 @@ export default observer(function () {
 
   function handleSubmit() {
     setLoading(true)
-    if (host.created_time) host.created_time = moment(host.created_time).format('YYYY-MM-DD HH:mm:ss')
-    if (host.expired_time) host.expired_time = moment(host.expired_time).format('YYYY-MM-DD HH:mm:ss')
+    if (host.created_time) host.created_time = moment(host.created_time).format('YYYY-MM-DD')
+    if (host.expired_time) host.expired_time = moment(host.expired_time).format('YYYY-MM-DD')
     http.post('/api/host/extend/', {host_id: host.id, ...host})
       .then(res => {
         Object.assign(host, res);
@@ -62,7 +68,11 @@ export default observer(function () {
   }
 
   function handleChange(e, key) {
+    console.log(e)
     host[key] = e && e.target ? e.target.value : e;
+    if (['created_time', 'expired_time'].includes(key) && e) {
+      host[key] = e.format('YYYY-MM-DD')
+    }
     setHost({...host})
   }
 
@@ -136,7 +146,7 @@ export default observer(function () {
           <Button key="1" type="link" loading={fetching} icon={<SyncOutlined/>} onClick={handleFetch}>同步</Button>,
           <Button key="2" type="link" loading={loading} icon={<SaveOutlined/>} onClick={handleSubmit}>保存</Button>
         ]) : (
-          <Button type="link" icon={<EditOutlined/>} onClick={() => setEdit(true)}>编辑</Button>
+          <AuthButton auth="host.host.edit" type="link" icon={<EditOutlined/>} onClick={() => setEdit(true)}>编辑</AuthButton>
         )}
         title={<span style={{fontWeight: 500}}>扩展信息</span>}>
         <Descriptions.Item label="实例ID">

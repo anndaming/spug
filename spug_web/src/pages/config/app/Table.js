@@ -43,6 +43,7 @@ class ComTable extends React.Component {
     }
     return (
       <TableCard
+        tKey="ca"
         rowKey="id"
         title="应用列表"
         loading={store.isFetching}
@@ -58,11 +59,9 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}>
-        <Table.Column title="序号" key="series" render={(_, __, index) => index + 1}/>
         <Table.Column title="应用名称" dataIndex="name"/>
         <Table.Column title="标识符" dataIndex="key"/>
         <Table.Column ellipsis title="描述信息" dataIndex="desc"/>
@@ -70,9 +69,9 @@ class ComTable extends React.Component {
           <Table.Column width={210} title="操作" render={info => (
             <Action>
               <Action.Button auth="config.app.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="config.app.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
               <Action.Button auth="config.app.view_config" onClick={() => store.showRel(info)}>依赖</Action.Button>
               <Action.Button auth="config.app.view_config" onClick={() => this.toConfig(info)}>配置</Action.Button>
+              <Action.Button danger auth="config.app.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>
         )}

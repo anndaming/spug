@@ -5,17 +5,21 @@
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Input, Card, Tree, Dropdown, Menu, Switch, message } from 'antd';
+import { Input, Card, Tree, Dropdown, Menu, Switch, Tooltip, Spin, Modal } from 'antd';
 import {
   FolderOutlined,
   FolderAddOutlined,
   EditOutlined,
   DeleteOutlined,
   CopyOutlined,
-  ScissorOutlined
+  CloseOutlined,
+  ScissorOutlined,
+  LoadingOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons';
-import { LoadingOutlined } from '@ant-design/icons';
-import { http } from 'libs';
+import { AuthFragment } from 'components';
+import { hasPermission, http } from 'libs';
+import styles from './index.module.less';
 import store from './store';
 import lds from 'lodash';
 
@@ -28,13 +32,16 @@ export default observer(function () {
   const [bakTreeData, setBakTreeData] = useState();
 
   useEffect(() => {
-    if (!loading) store.fetchGroups().then(() => {
-      if (loading === undefined) {
-        const tmp = store.treeData.filter(x => x.children.length)
-        setExpands(tmp.map(x => x.key))
-      }
-    })
+    if (loading === false) store.fetchGroups()
   }, [loading])
+
+  useEffect(() => {
+    if (store.treeData.length > 0 && expands === undefined) {
+      const tmp = store.treeData.filter(x => x.children.length)
+      setExpands(tmp.map(x => x.key))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.treeData])
 
   const menus = (
     <Menu onClick={() => setVisible(false)}>
@@ -45,19 +52,32 @@ export default observer(function () {
       <Menu.Item key="3" icon={<CopyOutlined/>} onClick={() => store.showSelector(true)}>添加至分组</Menu.Item>
       <Menu.Item key="4" icon={<ScissorOutlined/>} onClick={() => store.showSelector(false)}>移动至分组</Menu.Item>
       <Menu.Divider/>
-      <Menu.Item key="5" icon={<DeleteOutlined/>} danger onClick={handleRemove}>删除此分组</Menu.Item>
+      <Menu.Item key="5" icon={<CloseOutlined/>} danger onClick={handleRemoveHosts}>删除主机</Menu.Item>
+      <Menu.Item key="6" icon={<DeleteOutlined/>} danger onClick={handleRemove}>删除此分组</Menu.Item>
     </Menu>
   )
 
   function handleSubmit() {
-    if (!store.group.title) {
-      return message.error('请输入分组名称')
+    if (store.group.title) {
+      setLoading(true);
+      const {key, parent_id, title} = store.group;
+      http.post('/api/host/group/', {id: key || undefined, parent_id, name: title})
+        .then(() => setAction(''))
+        .finally(() => setLoading(false))
+    } else {
+      if (store.group.key === 0) store.treeData = bakTreeData
+      setAction('')
     }
-    setLoading(true);
-    const {key, parent_id, title} = store.group;
-    http.post('/api/host/group/', {id: key || undefined, parent_id, name: title})
-      .then(() => setAction(''))
-      .finally(() => setLoading(false))
+  }
+
+  function handleRemoveHosts() {
+    const group = store.group;
+    Modal.confirm({
+      title: '操作确认',
+      content: `批量删除【${group.title}】分组内的 ${group.all_host_ids.length} 个主机？`,
+      onOk: () => http.delete('/api/host/', {params: {group_id: group.key}})
+        .then(store.initial)
+    })
   }
 
   function handleRemove() {
@@ -97,11 +117,11 @@ export default observer(function () {
       .then(() => setLoading(false))
   }
 
-  function handleBlur() {
-    if (store.group.key === 0) {
-      store.treeData = bakTreeData
+  function handleRightClick(v) {
+    if (hasPermission('admin')) {
+      store.group = v.node;
+      setVisible(true)
     }
-    setAction('')
   }
 
   function handleExpand(keys, {_, node}) {
@@ -119,46 +139,62 @@ export default observer(function () {
         defaultValue={nodeData.title}
         suffix={loading ? <LoadingOutlined/> : <span/>}
         onClick={e => e.stopPropagation()}
-        onBlur={handleBlur}
+        onBlur={handleSubmit}
         onChange={e => store.group.title = e.target.value}
         onPressEnter={handleSubmit}/>
     } else if (action === 'del' && nodeData.key === store.group.key) {
       return <LoadingOutlined style={{marginLeft: '4px'}}/>
     } else {
+      const extend = nodeData.all_host_ids && nodeData.all_host_ids.length ? `（${nodeData.all_host_ids.length}）` : null
       return (
-        <span style={{lineHeight: '24px'}}>
-          {nodeData.title}{nodeData.all_host_ids && nodeData.all_host_ids.length ? `（${nodeData.all_host_ids.length}）` : null}
-        </span>
+        <span style={{lineHeight: '24px'}}>{nodeData.title}{extend}</span>
       )
     }
   }
 
+  const treeData = store.treeData;
   return (
     <Card
       title="分组列表"
-      loading={store.grpFetching}
-      extra={<Switch checked={draggable} onChange={setDraggable} checkedChildren="排版" unCheckedChildren="浏览"/>}>
-      <Dropdown
-        overlay={menus}
-        visible={visible}
-        trigger={['contextMenu']}
-        onVisibleChange={v => v || setVisible(v)}>
-        <Tree.DirectoryTree
-          autoExpandParent
-          draggable={draggable}
-          treeData={store.treeData}
-          titleRender={treeRender}
-          expandedKeys={expands}
-          selectedKeys={[store.group.key]}
-          onSelect={(_, {node}) => store.group = node}
-          onExpand={handleExpand}
-          onDrop={handleDrag}
-          onRightClick={v => {
-            store.group = v.node;
-            setVisible(true)
-          }}
-        />
-      </Dropdown>
+      className={styles.group}
+      extra={(
+        <AuthFragment auth="admin">
+          <Switch
+            checked={draggable}
+            onChange={setDraggable}
+            checkedChildren="排版"
+            unCheckedChildren="浏览"/>
+          <Tooltip title="排版模式下，可通过拖拽分组实现快速排序。">
+            <QuestionCircleOutlined style={{marginLeft: 8, color: '#999'}}/>
+          </Tooltip>
+        </AuthFragment>)}>
+      <Spin spinning={store.grpFetching}>
+        <Dropdown
+          overlay={menus}
+          visible={visible}
+          trigger={['contextMenu']}
+          onVisibleChange={v => v || setVisible(v)}>
+          <Tree.DirectoryTree
+            autoExpandParent
+            expandAction="doubleClick"
+            draggable={draggable}
+            treeData={treeData}
+            titleRender={treeRender}
+            expandedKeys={expands}
+            selectedKeys={[store.group.key]}
+            onSelect={(_, {node}) => store.group = node}
+            onExpand={handleExpand}
+            onDrop={handleDrag}
+            onRightClick={handleRightClick}
+          />
+        </Dropdown>
+      </Spin>
+      {treeData.length === 1 && treeData[0].children.length === 0 && (
+        <div style={{color: '#999', marginTop: 20, textAlign: 'center'}}>右键点击分组进行分组管理哦~</div>
+      )}
+      {store.records && treeData.length === 0 && (
+        <div style={{color: '#999'}}>你还没有可访问的主机分组，请联系管理员分配主机权限。</div>
+      )}
     </Card>
   )
 })

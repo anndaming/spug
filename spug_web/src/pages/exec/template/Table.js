@@ -41,6 +41,7 @@ class ComTable extends React.Component {
     }
     return (
       <TableCard
+        tKey="et"
         title="模板列表"
         rowKey="id"
         loading={store.isFetching}
@@ -56,7 +57,6 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}>
@@ -68,7 +68,7 @@ class ComTable extends React.Component {
           <Table.Column title="操作" render={info => (
             <Action>
               <Action.Button auth="exec.template.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="exec.template.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
+              <Action.Button danger auth="exec.template.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>
         )}

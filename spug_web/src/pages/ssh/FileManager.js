@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 import React from 'react';
-import { Drawer, Breadcrumb, Table, Divider, Switch, Button, Progress, Modal, message } from 'antd';
+import { Drawer, Breadcrumb, Table, Switch, Progress, Modal, message } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -13,6 +13,7 @@ import {
   HomeOutlined,
   UploadOutlined
 } from '@ant-design/icons';
+import { AuthButton, Action } from 'components';
 import { http, uniqueId, X_TOKEN } from 'libs';
 import lds from 'lodash';
 import styles from './index.module.less'
@@ -38,8 +39,8 @@ class FileManager extends React.Component {
     key: 'name',
     render: info => info.kind === 'd' ? (
       <div onClick={() => this.handleChdir(info.name, '1')} style={{cursor: 'pointer'}}>
-        <FolderOutlined style={{color: '#1890ff'}}/>
-        <span style={{color: '#1890ff', paddingLeft: 5}}>{info.name}</span>
+        <FolderOutlined style={{color: info.is_link ? '#008b8b' : '#1890ff'}}/>
+        <span style={{color: info.is_link ? '#008b8b' : '#1890ff', paddingLeft: 5}}>{info.name}</span>
       </div>
     ) : (
       <React.Fragment>
@@ -60,20 +61,19 @@ class FileManager extends React.Component {
     width: 190
   }, {
     title: '属性',
-    key: 'attr',
-    render: info => `${info.kind}${info.code}`,
-    width: 120
+    dataIndex: 'code',
+    width: 110
   }, {
     title: '操作',
-    width: 80,
+    width: 100,
     align: 'right',
     key: 'action',
     render: info => info.kind === '-' ? (
-      <React.Fragment>
-        <DownloadOutlined style={{color: '#1890ff'}} onClick={() => this.handleDownload(info.name)}/>
-        <Divider type="vertical"/>
-        <DeleteOutlined style={{color: 'red'}} onClick={() => this.handleDelete(info.name)}/>
-      </React.Fragment>
+      <Action>
+        <Action.Button icon={<DownloadOutlined/>} onClick={() => this.handleDownload(info.name)}/>
+        <Action.Button auth="host.console.del" danger icon={<DeleteOutlined/>}
+                       onClick={() => this.handleDelete(info.name)}/>
+      </Action>
     ) : null
   }];
 
@@ -121,11 +121,11 @@ class FileManager extends React.Component {
       const token = uniqueId();
       this._updatePercent(token);
       formData.append('file', file);
-      formData.append('id', this.id);
+      formData.append('id', this.props.id);
       formData.append('token', token);
       formData.append('path', '/' + this.state.pwd.join('/'));
       this.input.value = '';
-      http.post('/api/file/object/', formData, {timeout: 600000})
+      http.post('/api/file/object/', formData, {timeout: 600000, onUploadProgress: this._updateLocal})
         .then(() => {
           this.setState({uploadStatus: 'success'});
           this.fetchFiles()
@@ -133,6 +133,11 @@ class FileManager extends React.Component {
         .finally(() => setTimeout(() => this.setState({uploading: false}), 2000))
     }
   };
+
+  _updateLocal = (e) => {
+    const percent = e.loaded / e.total * 100 / 2
+    this.setState({percent: Number(percent.toFixed(1))})
+  }
 
   _updatePercent = token => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -142,8 +147,9 @@ class FileManager extends React.Component {
       if (e.data === 'pong') {
         this.socket.send('ping')
       } else {
-        this.setState({percent: Number(e.data)});
-        if (Number(e.data) === 100) {
+        const percent = this.state.percent + Number(e.data) / 2;
+        if (percent > this.state.percent) this.setState({percent: Number(percent.toFixed(1))});
+        if (percent === 100) {
           this.socket.close()
         }
       }
@@ -153,11 +159,10 @@ class FileManager extends React.Component {
   handleDownload = (name) => {
     const file = `/${this.state.pwd.join('/')}/${name}`;
     const link = document.createElement('a');
+    link.download = name;
     link.href = `/api/file/object/?id=${this.props.id}&file=${file}&x-token=${X_TOKEN}`;
     document.body.appendChild(link);
-    const evt = document.createEvent("MouseEvents");
-    evt.initEvent("click", false, false);
-    link.dispatchEvent(evt);
+    link.click();
     document.body.removeChild(link);
     message.warning('即将开始下载，请勿重复点击。')
   };
@@ -210,8 +215,13 @@ class FileManager extends React.Component {
               checkedChildren="开启"
               unCheckedChildren="关闭"
               onChange={v => this.setState({showDot: v})}/>
-            <Button style={{marginLeft: 10}} size="small" type="primary" icon={<UploadOutlined/>}
-                    onClick={this.handleUpload}>上传文件</Button>
+            <AuthButton
+              auth="host.console.upload"
+              style={{marginLeft: 10}}
+              size="small"
+              type="primary"
+              icon={<UploadOutlined/>}
+              onClick={this.handleUpload}>上传文件</AuthButton>
           </div>
         </div>
         {this.state.uploading && (
@@ -224,7 +234,7 @@ class FileManager extends React.Component {
           pagination={false}
           columns={this.columns}
           scroll={{y: scrollY}}
-          bodyStyle={{fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace"}}
+          style={{fontFamily: 'Source Code Pro, Courier New, Courier, Monaco, monospace, PingFang SC, Microsoft YaHei'}}
           dataSource={objects}/>
       </Drawer>
     )

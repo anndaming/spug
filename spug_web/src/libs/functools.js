@@ -6,7 +6,6 @@
 let Permission = {
   isReady: false,
   isSuper: false,
-  hostPerms: [],
   permissions: []
 };
 
@@ -16,8 +15,11 @@ export function updatePermissions() {
   X_TOKEN = localStorage.getItem('token');
   Permission.isReady = true;
   Permission.isSuper = localStorage.getItem('is_supper') === 'true';
-  Permission.hostPerms = JSON.parse(localStorage.getItem('host_perms') || '[]');
-  Permission.permissions = JSON.parse(localStorage.getItem('permissions') || '[]');
+  try {
+    Permission.permissions = JSON.parse(localStorage.getItem('permissions') || '[]');
+  } catch (e) {
+
+  }
 }
 
 // 前端页面的权限判断(仅作为前端功能展示的控制，具体权限控制应在后端实现)
@@ -32,17 +34,15 @@ export function hasPermission(strCode) {
   return false
 }
 
-export function hasHostPermission(id) {
-  const {isSuper, hostPerms} = Permission;
-  return isSuper || hostPerms.includes(id)
-}
-
 export function includes(s, key) {
   key = key.toLowerCase();
-  if (s) {
-    return s.toLowerCase().includes(key)
-  } else {
+  if (Array.isArray(s)) {
+    for (let i of s) {
+      if (i && i.toLowerCase().includes(key)) return true
+    }
     return false
+  } else {
+    return s && s.toLowerCase().includes(key)
   }
 }
 

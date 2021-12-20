@@ -2,10 +2,13 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
+from django.conf import settings
 from libs import ModelMixin, human_datetime
 from apps.account.models import User
 from apps.app.models import Deploy
 from apps.repository.models import Repository
+import json
+import os
 
 
 class DeployRequest(models.Model, ModelMixin):
@@ -19,7 +22,8 @@ class DeployRequest(models.Model, ModelMixin):
     )
     TYPES = (
         ('1', '正常发布'),
-        ('2', '回滚')
+        ('2', '回滚'),
+        ('3', '自动发布'),
     )
     deploy = models.ForeignKey(Deploy, on_delete=models.CASCADE)
     repository = models.ForeignKey(Repository, null=True, on_delete=models.SET_NULL)
@@ -32,6 +36,7 @@ class DeployRequest(models.Model, ModelMixin):
     reason = models.CharField(max_length=255, null=True)
     version = models.CharField(max_length=50, null=True)
     spug_version = models.CharField(max_length=50, null=True)
+    plan = models.DateTimeField(null=True)
 
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
@@ -39,6 +44,24 @@ class DeployRequest(models.Model, ModelMixin):
     approve_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
     do_at = models.CharField(max_length=20, null=True)
     do_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+
+    @property
+    def is_quick_deploy(self):
+        if self.type in ('1', '3') and self.deploy.extend == '1' and self.extra:
+            extra = json.loads(self.extra)
+            return extra[0] in ('branch', 'tag')
+        return False
+
+    def delete(self, using=None, keep_parents=False):
+        super().delete(using, keep_parents)
+        if self.repository_id:
+            if not DeployRequest.objects.filter(repository=self.repository).exists():
+                self.repository.delete()
+        if self.deploy.extend == '2':
+            try:
+                os.remove(os.path.join(settings.REPOS_DIR, str(self.deploy_id), self.spug_version))
+            except FileNotFoundError:
+                pass
 
     def __repr__(self):
         return f'<DeployRequest name={self.name}>'

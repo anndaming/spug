@@ -5,7 +5,7 @@
     .sider {
         display: flex;
         flex-direction: column;
-        width: 220px;
+        width: 280px;
         background-color: #fafafa;
 
         .logo {
@@ -19,7 +19,6 @@
             }
         }
         .hosts {
-            margin-top: 12px;
             :global(.ant-tree-node-content-wrapper) {
                 overflow: hidden;
                 text-overflow: ellipsis;
@@ -27,6 +26,13 @@
             }
             :global(.ant-tree) {
                 background-color: #fafafa;
+                height: calc(100vh - 98px);
+                overflow: auto;
+            }
+
+            .search {
+                margin: 12px 10px;
+                width: 260px;
             }
         }
     }
@@ -36,7 +42,7 @@
         flex-direction: column;
 
         :global(.ant-tabs-nav) {
-            width: calc(100vw - 220px);
+            width: calc(100vw - 280px);
             height: 42px;
             margin: 0;
         }
@@ -61,6 +67,7 @@
     background-color: #000;
     color: #fff;
     padding-top: 200px;
+    margin-bottom: 0;
     text-align: center;
 }
 

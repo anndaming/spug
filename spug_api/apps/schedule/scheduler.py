@@ -6,27 +6,23 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN, EVENT_JOB_MAX_INSTANCES, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from django_redis import get_redis_connection
-from django.utils.functional import SimpleLazyObject
-from django.db import close_old_connections
+from django.db import connections
 from apps.schedule.models import Task, History
-from apps.schedule.utils import send_fail_notify
-from apps.notify.models import Notify
-from apps.schedule.executors import dispatch
-from apps.schedule.utils import auto_clean_schedule_history
-from apps.alarm.utils import auto_clean_alarm_records
-from apps.account.utils import auto_clean_login_history
-from apps.deploy.utils import auto_update_status
+from apps.schedule.builtin import auto_run_by_day, auto_run_by_minute
 from django.conf import settings
 from libs import AttrDict, human_datetime
 import logging
 import json
 
+SCHEDULE_WORKER_KEY = settings.SCHEDULE_WORKER_KEY
+
 
 class Scheduler:
     timezone = settings.TIME_ZONE
     week_map = {
+        '/': '/',
+        '-': '-',
         '*': '*',
         '7': '6',
         '0': '6',
@@ -40,9 +36,10 @@ class Scheduler:
 
     def __init__(self):
         self.scheduler = BackgroundScheduler(timezone=self.timezone, executors={'default': ThreadPoolExecutor(30)})
-        self.scheduler.add_listener(
-            self._handle_event,
-            EVENT_SCHEDULER_SHUTDOWN | EVENT_JOB_ERROR | EVENT_JOB_MAX_INSTANCES | EVENT_JOB_EXECUTED)
+
+    @classmethod
+    def covert_week(cls, week_str):
+        return ''.join(map(lambda x: cls.week_map[x], week_str))
 
     @classmethod
     def parse_trigger(cls, trigger, trigger_args):
@@ -53,44 +50,29 @@ class Scheduler:
         elif trigger == 'cron':
             args = json.loads(trigger_args) if not isinstance(trigger_args, dict) else trigger_args
             minute, hour, day, month, week = args['rule'].split()
-            week = cls.week_map[week]
+            week = cls.covert_week(week)
             return CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=week,
                                start_date=args['start'], end_date=args['stop'])
         else:
             raise TypeError(f'unknown schedule policy: {trigger!r}')
 
-    def _handle_event(self, event):
-        close_old_connections()
-        obj = SimpleLazyObject(lambda: Task.objects.filter(pk=event.job_id).first())
-        if event.code == EVENT_SCHEDULER_SHUTDOWN:
-            logging.warning(f'EVENT_SCHEDULER_SHUTDOWN: {event}')
-            Notify.make_notify('schedule', '1', '调度器已关闭', '调度器意外关闭，你可以在github上提交issue')
-        elif event.code == EVENT_JOB_MAX_INSTANCES:
-            logging.warning(f'EVENT_JOB_MAX_INSTANCES: {event}')
-            send_fail_notify(obj, '达到调度实例上限，一般为上个周期的执行任务还未结束，请增加调度间隔或减少任务执行耗时')
-        elif event.code == EVENT_JOB_ERROR:
-            logging.warning(f'EVENT_JOB_ERROR: job_id {event.job_id} exception: {event.exception}')
-            send_fail_notify(obj, f'执行异常：{event.exception}')
-        elif event.code == EVENT_JOB_EXECUTED:
-            if event.retval:
-                score = 0
-                for item in event.retval:
-                    score += 1 if item[1] else 0
-                history = History.objects.create(
-                    task_id=event.job_id,
-                    status=2 if score == len(event.retval) else 1 if score else 0,
-                    run_time=human_datetime(event.scheduled_run_time),
-                    output=json.dumps(event.retval)
-                )
-                Task.objects.filter(pk=event.job_id).update(latest=history)
-                if score != 0:
-                    send_fail_notify(obj)
-
     def _init_builtin_jobs(self):
-        self.scheduler.add_job(auto_clean_alarm_records, 'cron', hour=0, minute=1)
-        self.scheduler.add_job(auto_clean_login_history, 'cron', hour=0, minute=2)
-        self.scheduler.add_job(auto_clean_schedule_history, 'cron', hour=0, minute=3)
-        self.scheduler.add_job(auto_update_status, 'interval', minutes=5)
+        self.scheduler.add_job(auto_run_by_day, 'cron', hour=1, minute=20)
+        self.scheduler.add_job(auto_run_by_minute, 'interval', minutes=1)
+
+    def _dispatch(self, task_id, command, targets):
+        output = {x: None for x in targets}
+        history = History.objects.create(
+            task_id=task_id,
+            status='0',
+            run_time=human_datetime(),
+            output=json.dumps(output)
+        )
+        Task.objects.filter(pk=task_id).update(latest_id=history.id)
+        rds_cli = get_redis_connection()
+        for t in targets:
+            rds_cli.rpush(SCHEDULE_WORKER_KEY, json.dumps([history.id, t, command]))
+        connections.close_all()
 
     def _init(self):
         self.scheduler.start()
@@ -98,11 +80,12 @@ class Scheduler:
         for task in Task.objects.filter(is_active=True):
             trigger = self.parse_trigger(task.trigger, task.trigger_args)
             self.scheduler.add_job(
-                dispatch,
+                self._dispatch,
                 trigger,
                 id=str(task.id),
-                args=(task.command, json.loads(task.targets)),
+                args=(task.id, task.command, json.loads(task.targets)),
             )
+        connections.close_all()
 
     def run(self):
         rds_cli = get_redis_connection()
@@ -115,10 +98,10 @@ class Scheduler:
             if task.action in ('add', 'modify'):
                 trigger = self.parse_trigger(task.trigger, task.trigger_args)
                 self.scheduler.add_job(
-                    dispatch,
+                    self._dispatch,
                     trigger,
                     id=str(task.id),
-                    args=(task.command, task.targets),
+                    args=(task.id, task.command, task.targets),
                     replace_existing=True
                 )
             elif task.action == 'remove':

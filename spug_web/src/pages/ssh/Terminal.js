@@ -18,21 +18,19 @@ function WebSSH(props) {
   useEffect(() => {
     const fitPlugin = new FitAddon();
     term.loadAddon(fitPlugin);
+    term.setOption('fontFamily', 'Source Code Pro, Courier New, Courier, Monaco, monospace, PingFang SC, Microsoft YaHei')
+    term.open(container.current);
+    term.write('WebSocket connecting ... ');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/ws/ssh/${props.id}/?x-token=${X_TOKEN}`);
     socket.onmessage = e => _read_as_text(e.data);
     socket.onopen = () => {
-      term.open(container.current);
+      term.write('ok')
       term.focus();
       fitPlugin.fit();
     };
     socket.onclose = e => {
-      if (e.code === 3333) {
-        window.location.href = "about:blank";
-        window.close()
-      } else {
-        setTimeout(() => term.write('\r\nConnection is closed.\r\n'), 200)
-      }
+      setTimeout(() => term.write('\r\nConnection is closed.\r\n'), 200)
     };
     term.onData(data => socket.send(JSON.stringify({data})));
     term.onResize(({cols, rows}) => socket.send(JSON.stringify({resize: [cols, rows]})));
@@ -47,7 +45,7 @@ function WebSSH(props) {
   }, [])
 
   useEffect(() => {
-    if (String(props.id) === props.activeId) {
+    if (props.vId === props.activeId) {
       setTimeout(() => term.focus())
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

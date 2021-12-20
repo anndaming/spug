@@ -5,7 +5,8 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Radio, Tag } from 'antd';
+import { Radio, Tag, Tooltip } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import { TableCard } from 'components';
 import store from './store';
 import groupStore from '../group/store';
@@ -43,6 +44,9 @@ class ComTable extends React.Component {
     title: '监控类型',
     dataIndex: 'type',
   }, {
+    title: '监控对象',
+    dataIndex: 'target'
+  }, {
     title: '状态',
     dataIndex: 'status',
     render: value => value === '1' ? <Tag color="orange">报警发生</Tag> : <Tag color="green">故障恢复</Tag>
@@ -64,8 +68,16 @@ class ComTable extends React.Component {
   render() {
     return (
       <TableCard
+        tKey="aa"
         rowKey="id"
-        title="报警历史记录"
+        title={(
+          <div style={{display: 'flex', alignItems: 'center'}}>
+            <div>报警历史记录</div>
+            <Tooltip title="每天自动清理，仅保留最近30天的报警记录。">
+              <QuestionCircleOutlined style={{color: '#999', marginLeft: 8}}/>
+            </Tooltip>
+          </div>
+        )}
         loading={store.isFetching}
         dataSource={store.dataSource}
         onReload={store.fetchRecords}
@@ -79,7 +91,6 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}

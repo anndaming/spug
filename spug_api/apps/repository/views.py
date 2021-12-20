@@ -3,7 +3,9 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from django.db.models import F
-from libs import json_response, JsonParser, Argument
+from django.conf import settings
+from django_redis import get_redis_connection
+from libs import json_response, JsonParser, Argument, human_time, AttrDict, auth
 from apps.repository.models import Repository
 from apps.deploy.models import DeployRequest
 from apps.repository.utils import dispatch
@@ -13,6 +15,7 @@ import json
 
 
 class RepositoryView(View):
+    @auth('deploy.repository.view')
     def get(self, request):
         deploy_id = request.GET.get('deploy_id')
         data = Repository.objects.annotate(
@@ -21,8 +24,19 @@ class RepositoryView(View):
             created_by_user=F('created_by__nickname'))
         if deploy_id:
             data = data.filter(deploy_id=deploy_id, status='5')
-        return json_response([x.to_view() for x in data])
+            return json_response([x.to_view() for x in data])
 
+        response = dict()
+        for item in data:
+            if item.app_id in response:
+                response[item.app_id]['child'].append(item.to_view())
+            else:
+                tmp = item.to_view()
+                tmp['child'] = [item.to_view()]
+                response[item.app_id] = tmp
+        return json_response(list(response.values()))
+
+    @auth('deploy.repository.add')
     def post(self, request):
         form, error = JsonParser(
             Argument('deploy_id', type=int, help='参数错误'),
@@ -45,6 +59,7 @@ class RepositoryView(View):
             return json_response(rep.to_view())
         return json_response(error=error)
 
+    @auth('deploy.repository.add|deploy.repository.build')
     def patch(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
@@ -59,6 +74,7 @@ class RepositoryView(View):
                 return json_response(rep.to_view())
         return json_response(error=error)
 
+    @auth('deploy.repository.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
@@ -73,6 +89,7 @@ class RepositoryView(View):
         return json_response(error=error)
 
 
+@auth('deploy.repository.view')
 def get_requests(request):
     form, error = JsonParser(
         Argument('repository_id', type=int, help='参数错误')
@@ -85,3 +102,38 @@ def get_requests(request):
             data['status_alias'] = item.get_status_display()
             requests.append(data)
         return json_response(requests)
+
+
+@auth('deploy.repository.view')
+def get_detail(request, r_id):
+    repository = Repository.objects.filter(pk=r_id).first()
+    if not repository:
+        return json_response(error='未找到指定构建记录')
+    rds, counter = get_redis_connection(), 0
+    if repository.remarks == 'SPUG AUTO MAKE':
+        req = repository.deployrequest_set.last()
+        key = f'{settings.REQUEST_KEY}:{req.id}'
+    else:
+        key = f'{settings.BUILD_KEY}:{repository.spug_version}'
+    data = rds.lrange(key, counter, counter + 9)
+    response = AttrDict(data='', step=0, s_status='process', status=repository.status)
+    while data:
+        for item in data:
+            counter += 1
+            item = json.loads(item.decode())
+            if item['key'] == 'local':
+                if 'data' in item:
+                    response.data += item['data']
+                if 'step' in item:
+                    response.step = item['step']
+                if 'status' in item:
+                    response.status = item['status']
+        data = rds.lrange(key, counter, counter + 9)
+    response.index = counter
+    if repository.status in ('0', '1'):
+        response.data = f'{human_time()} 建立连接...        ' + response.data
+    elif not response.data:
+        response.data = f'{human_time()} 读取数据...        \r\n\r\n未读取到数据，Spug 仅保存最近2周的构建日志。'
+    else:
+        response.data = f'{human_time()} 读取数据...        ' + response.data
+    return json_response(response)

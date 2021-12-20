@@ -3,30 +3,25 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from django.db.models import F
-from django.conf import settings
-from libs import JsonParser, Argument, json_response
+from libs import JsonParser, Argument, json_response, auth
 from apps.app.models import App, Deploy, DeployExtend1, DeployExtend2
-from apps.config.models import Config
+from apps.config.models import Config, ConfigHistory
 from apps.app.utils import fetch_versions, remove_repo
-import subprocess
+from apps.setting.utils import AppSetting
 import json
-import os
+import re
 
 
 class AppView(View):
+    @auth('deploy.app.view|deploy.repository.view|deploy.request.view|config.app.view')
     def get(self, request):
-        # v2.3.14 临时数据初始化
-        app = App.objects.first()
-        if app and hasattr(app, 'sort_id') and app.sort_id == 0:
-            for app in App.objects.all():
-                app.sort_id = app.id
-                app.save()
         query = {}
         if not request.user.is_supper:
             query['id__in'] = request.user.deploy_perms['apps']
         apps = App.objects.filter(**query)
         return json_response(apps)
 
+    @auth('deploy.app.edit|config.app.add|config.app.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
@@ -35,7 +30,9 @@ class AppView(View):
             Argument('desc', required=False)
         ).parse(request.body)
         if error is None:
-            form.name = form.name.replace("'", '')
+            if not re.fullmatch(r'[-\w]+', form.key, re.ASCII):
+                return json_response(error='标识符必须为字母、数字、-和下划线的组合')
+
             app = App.objects.filter(key=form.key).first()
             if app and app.id != form.id:
                 return json_response(error=f'唯一标识符 {form.key} 已存在，请更改后重试')
@@ -45,10 +42,9 @@ class AppView(View):
                 app = App.objects.create(created_by=request.user, **form)
                 app.sort_id = app.id
                 app.save()
-                if request.user.role:
-                    request.user.role.add_deploy_perm('apps', app.id)
         return json_response(error=error)
 
+    @auth('deploy.app.edit|config.app.edit_config')
     def patch(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
@@ -75,6 +71,7 @@ class AppView(View):
             app.save()
         return json_response(error=error)
 
+    @auth('deploy.app.del|config.app.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
@@ -82,13 +79,21 @@ class AppView(View):
         if error is None:
             if Deploy.objects.filter(app_id=form.id).exists():
                 return json_response(error='该应用在应用发布中已存在关联的发布配置，请删除相关发布配置后再尝试删除')
-            if Config.objects.filter(type='app', o_id=form.id).exists():
-                return json_response(error='该应用在配置中心已存在关联的配置信息，请删除相关配置后再尝试删除')
+            # auto delete configs
+            Config.objects.filter(type='app', o_id=form.id).delete()
+            ConfigHistory.objects.filter(type='app', o_id=form.id).delete()
+            for app in App.objects.filter(rel_apps__isnull=False):
+                rel_apps = json.loads(app.rel_apps)
+                if form.id in rel_apps:
+                    rel_apps.remove(form.id)
+                    app.rel_apps = json.dumps(rel_apps)
+                    app.save()
             App.objects.filter(pk=form.id).delete()
         return json_response(error=error)
 
 
 class DeployView(View):
+    @auth('deploy.app.view|deploy.request.view')
     def get(self, request):
         form, error = JsonParser(
             Argument('app_id', type=int, required=False)
@@ -97,9 +102,12 @@ class DeployView(View):
             perms = request.user.deploy_perms
             form.app_id__in = perms['apps']
             form.env_id__in = perms['envs']
-        deploys = Deploy.objects.filter(**form).annotate(app_name=F('app__name')).order_by('-app__sort_id')
+        deploys = Deploy.objects.filter(**form) \
+            .annotate(app_name=F('app__name'), app_key=F('app__key')) \
+            .order_by('-app__sort_id')
         return json_response(deploys)
 
+    @auth('deploy.app.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
@@ -151,6 +159,7 @@ class DeployView(View):
                     return json_response(error=error)
                 if len(extend_form.server_actions) + len(extend_form.host_actions) == 0:
                     return json_response(error='请至少设置一个执行的动作')
+                extend_form.require_upload = any(x.get('src_mode') == '1' for x in extend_form.host_actions)
                 extend_form.server_actions = json.dumps(extend_form.server_actions)
                 extend_form.host_actions = json.dumps(extend_form.host_actions)
                 if form.id:
@@ -161,17 +170,22 @@ class DeployView(View):
                     DeployExtend2.objects.create(deploy=deploy, **extend_form)
         return json_response(error=error)
 
+    @auth('deploy.app.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
-            Deploy.objects.filter(pk=form.id).delete()
-            repo_dir = os.path.join(settings.REPOS_DIR, str(form.id))
-            subprocess.Popen(f'rm -rf {repo_dir} {repo_dir + "_*"}', shell=True)
+            deploy = Deploy.objects.get(pk=form.id)
+            if deploy.deployrequest_set.exists():
+                return json_response(error='已存在关联的发布记录，请删除关联的发布记录后再尝试删除发布配置')
+            for item in deploy.repository_set.all():
+                item.delete()
+            deploy.delete()
         return json_response(error=error)
 
 
+@auth('deploy.app.config')
 def get_versions(request, d_id):
     deploy = Deploy.objects.filter(pk=d_id).first()
     if not deploy:
@@ -180,3 +194,9 @@ def get_versions(request, d_id):
         return json_response(error='该应用不支持此操作')
     branches, tags = fetch_versions(deploy)
     return json_response({'branches': branches, 'tags': tags})
+
+
+@auth('deploy.app.config')
+def kit_key(request):
+    api_key = AppSetting.get_default('api_key')
+    return json_response(api_key)

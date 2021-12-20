@@ -5,8 +5,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Button, Tooltip, message, TreeSelect } from 'antd';
-import { PlusOutlined, QuestionCircleOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import { Modal, Form, Button, message, TreeSelect } from 'antd';
+import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import hostStore from 'pages/host/store';
 import http from 'libs/http';
 import store from './store';
@@ -14,17 +14,17 @@ import styles from './index.module.css';
 
 export default observer(function () {
   const [loading, setLoading] = useState(false);
-  const [groups, setGroups] = useState([...store.record.host_perms]);
+  const [groups, setGroups] = useState([...store.record.group_perms]);
 
   useEffect(() => {
     if (hostStore.treeData.length === 0) {
-      hostStore.fetchGroups()
+      hostStore.initial()
     }
   }, [])
 
   function handleSubmit() {
     setLoading(true);
-    http.patch('/api/account/role/', {id: store.record.id, host_perms: groups})
+    http.patch('/api/account/role/', {id: store.record.id, group_perms: groups})
       .then(res => {
         message.success('操作成功');
         store.hostPermVisible = false;
@@ -56,14 +56,7 @@ export default observer(function () {
       confirmLoading={loading}
       onOk={handleSubmit}>
       <Form layout="vertical">
-        <Form.Item label={
-          <span>
-            授权访问主机组&nbsp;
-            <Tooltip title="主机权限将全局影响属于该角色的用户能够看到的主机。">
-              <QuestionCircleOutlined/>
-            </Tooltip>
-          </span>
-        }>
+        <Form.Item label="授权访问主机组" tooltip="主机权限将全局影响属于该角色的用户能够看到的主机。">
           {groups.map((id, index) => (
             <div className={styles.groupItem} key={index}>
               <TreeSelect

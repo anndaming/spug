@@ -9,37 +9,13 @@ import { Table, Modal, Radio, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { Action, AuthButton, TableCard } from 'components';
 import { http, hasPermission } from 'libs';
-import groupStore from '../alarm/group/store';
-import hostStore from '../host/store';
 import store from './store';
-import lds from 'lodash';
 
 @observer
 class ComTable extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = {
-      hosts: {}
-    }
-  }
-
   componentDidMount() {
     store.fetchRecords();
-    if (groupStore.records.length === 0) groupStore.fetchRecords();
-    if (hostStore.records.length === 0) {
-      hostStore.fetchRecords().then(this._handleHosts)
-    } else {
-      this._handleHosts()
-    }
   }
-
-  _handleHosts = () => {
-    const tmp = {};
-    for (let item of hostStore.records) {
-      tmp[item.id] = item
-    }
-    this.setState({hosts: tmp})
-  };
 
   handleActive = (text) => {
     Modal.confirm({
@@ -72,6 +48,7 @@ class ComTable extends React.Component {
   render() {
     return (
       <TableCard
+        tKey="mi"
         rowKey="id"
         title="监控任务"
         loading={store.isFetching}
@@ -92,32 +69,18 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}>
-        <Table.Column title="监控分组" dataIndex="group" />
+        <Table.Column title="监控分组" dataIndex="group"/>
         <Table.Column title="监控名称" dataIndex="name"/>
         <Table.Column title="类型" dataIndex="type_alias"/>
-        <Table.Column ellipsis title="地址" render={info => {
-          if ('34'.includes(info.type)) {
-            return lds.get(this.state.hosts, `${info.addr}.name`)
-          } else {
-            return info.addr
-          }
-        }}/>
         <Table.Column title="频率" dataIndex="rate" render={value => `${value}分钟`}/>
         <Table.Column title="状态" render={info => {
           if (info.is_active) {
-            if (info['latest_status'] === 0) {
-              return <Tag color="green">正常</Tag>
-            } else if (info['latest_status'] === 1) {
-              return <Tag color="red">异常</Tag>
-            } else {
-              return <Tag color="orange">待检测</Tag>
-            }
+            return <Tag color="blue">已激活</Tag>
           } else {
-            return <Tag>未启用</Tag>
+            return <Tag color="red">未激活</Tag>
           }
         }}/>
         <Table.Column title="更新于" dataIndex="latest_run_time_alias"
@@ -129,7 +92,8 @@ class ComTable extends React.Component {
               <Action.Button auth="monitor.monitor.edit"
                              onClick={() => this.handleActive(info)}>{info['is_active'] ? '禁用' : '启用'}</Action.Button>
               <Action.Button auth="monitor.monitor.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="monitor.monitor.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
+              <Action.Button danger auth="monitor.monitor.del"
+                             onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>
         )}

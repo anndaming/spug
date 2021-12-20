@@ -3,8 +3,9 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from django.db.models import F
-from libs import json_response, JsonParser, Argument
+from libs import json_response, JsonParser, Argument, auth
 from apps.host.models import Group
+from apps.account.models import Role
 
 
 def fetch_children(data, with_hosts):
@@ -28,7 +29,17 @@ def merge_children(data, prefix, childes):
             data[item['key']] = name
 
 
+def filter_by_perm(data, result, ids):
+    for item in data:
+        if 'children' in item:
+            if item['key'] in ids:
+                result.append(item)
+            elif item['children']:
+                filter_by_perm(item['children'], result, ids)
+
+
 class GroupView(View):
+    @auth('host.host.view|host.console.view|exec.task.do')
     def get(self, request):
         with_hosts = request.GET.get('with_hosts')
         data, data2 = dict(), dict()
@@ -38,11 +49,15 @@ class GroupView(View):
         if not data:
             grp = Group.objects.create(name='Default', sort_id=1)
             data[grp.id] = grp.to_view()
+        if request.user.is_supper:
+            tree_data = list(data.values())
+        else:
+            tree_data, ids = [], request.user.group_perms
+            filter_by_perm(data.values(), tree_data, ids)
+        merge_children(data2, '', tree_data)
+        return json_response({'treeData': tree_data, 'groups': data2})
 
-        data = list(data.values())
-        merge_children(data2, '', data)
-        return json_response({'treeData': data, 'groups': data2})
-
+    @auth('admin')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
@@ -58,6 +73,7 @@ class GroupView(View):
                 group.save()
         return json_response(error=error)
 
+    @auth('admin')
     def patch(self, request):
         form, error = JsonParser(
             Argument('s_id', type=int, help='参数错误'),
@@ -87,6 +103,7 @@ class GroupView(View):
             src.save()
         return json_response(error=error)
 
+    @auth('admin')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误')
@@ -99,5 +116,10 @@ class GroupView(View):
                 return json_response(error='请移除子分组后再尝试删除')
             if group.hosts.exists():
                 return json_response(error='请移除分组下的主机后再尝试删除')
+            if not Group.objects.exclude(pk=form.id).exists():
+                return json_response(error='请至少保留一个分组')
+            role = Role.objects.filter(group_perms__regex=fr'[^0-9]{form.id}[^0-9]').first()
+            if role:
+                return json_response(error=f'账户角色【{role.name}】的主机权限关联该分组，请解除关联后再尝试删除')
             group.delete()
         return json_response(error=error)

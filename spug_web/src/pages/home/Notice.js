@@ -4,8 +4,9 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useEffect, useState } from 'react';
-import { Button, Card, List, Modal, Form, Input, Switch, Divider, Typography } from 'antd';
-import { DownSquareOutlined, PlusOutlined, UpSquareOutlined, SoundOutlined } from '@ant-design/icons';
+import { Card, List, Modal, Form, Input, Switch, Divider, Typography } from 'antd';
+import { DownSquareOutlined, PlusOutlined, UpSquareOutlined, SoundOutlined, DeleteOutlined } from '@ant-design/icons';
+import { AuthButton } from 'components';
 import { http } from 'libs';
 import styles from './index.module.less';
 
@@ -70,22 +71,33 @@ function NoticeIndex(props) {
     setNotice(null);
   }
 
+  function handleDelete(item) {
+    Modal.confirm({
+      title: '操作确认',
+      content: `确定要删除系统公告【${item.title}】？`,
+      onOk: () => http.delete('/api/home/notice/', {params: {id: item.id}})
+        .then(fetchRecords)
+    })
+  }
+
   return (
     <Card
       title="系统公告"
       loading={fetching}
       className={styles.notice}
-      extra={<Button type="link" onClick={() => setIsEdit(!isEdit)}>{isEdit ? '完成' : '编辑'}</Button>}>
+      extra={<AuthButton auth="admin" type="link"
+                         onClick={() => setIsEdit(!isEdit)}>{isEdit ? '完成' : '编辑'}</AuthButton>}>
       {isEdit ? (
         <List>
           <div className={styles.add} onClick={() => showForm({})}><PlusOutlined/>新建公告</div>
           {records.map(item => (
-            <List.Item key={item.id} onClick={() => showForm(item)}>
+            <List.Item key={item.id}>
               <div className={styles.item}>
                 <UpSquareOutlined onClick={e => handleSort(e, item, 'up')}/>
                 <Divider type="vertical"/>
                 <DownSquareOutlined onClick={e => handleSort(e, item, 'down')}/>
-                <span className={styles.title} style={{marginLeft: 24}}>{item.title}</span>
+                <div className={styles.title} style={{marginLeft: 24}} onClick={() => showForm(item)}>{item.title}</div>
+                <DeleteOutlined style={{color: 'red', marginLeft: 12}} onClick={() => handleDelete(item)}/>
               </div>
             </List.Item>
           ))}
@@ -94,7 +106,7 @@ function NoticeIndex(props) {
         <List>
           {records.map(item => (
             <List.Item key={item.id} className={styles.item} onClick={() => setNotice(item)}>
-              {!item.read_ids.includes(id) && <SoundOutlined style={{color: '#ff4d4f', marginRight: 4}} />}
+              {!item.read_ids.includes(id) && <SoundOutlined style={{color: '#ff4d4f', marginRight: 4}}/>}
               <span className={styles.title}>{item.title}</span>
               <span className={styles.date}>{item.created_at.substr(0, 10)}</span>
             </List.Item>
@@ -107,7 +119,6 @@ function NoticeIndex(props) {
       <Modal
         title="编辑公告"
         visible={record}
-        afterClose={() => console.log('after close')}
         onCancel={() => setRecord(null)}
         confirmLoading={loading}
         onOk={handleSubmit}>

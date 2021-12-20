@@ -20,7 +20,7 @@ updatePermissions();
 
 ReactDOM.render(
   <Router history={history}>
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider locale={zhCN} getPopupContainer={() => document.fullscreenElement || document.body}>
       <App/>
     </ConfigProvider>
   </Router>,

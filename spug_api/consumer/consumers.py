@@ -6,6 +6,7 @@ from django.conf import settings
 from django_redis import get_redis_connection
 from asgiref.sync import async_to_sync
 from apps.host.models import Host
+from apps.account.utils import has_host_perm
 from threading import Thread
 import time
 import json
@@ -45,6 +46,8 @@ class ComConsumer(WebsocketConsumer):
             self.key = f'{settings.BUILD_KEY}:{token}'
         elif module == 'request':
             self.key = f'{settings.REQUEST_KEY}:{token}'
+        elif module == 'host':
+            self.key = token
         else:
             raise TypeError(f'unknown module for {module}')
         self.rds = get_redis_connection()
@@ -94,7 +97,7 @@ class SSHConsumer(WebsocketConsumer):
 
     def receive(self, text_data=None, bytes_data=None):
         data = text_data or bytes_data
-        if data:
+        if data and self.chan:
             data = json.loads(data)
             # print('write: {!r}'.format(data))
             resize = data.get('resize')
@@ -109,14 +112,14 @@ class SSHConsumer(WebsocketConsumer):
         # print('Connection close')
 
     def connect(self):
-        if self.user.has_host_perm(self.id):
+        if has_host_perm(self.user, self.id):
             self.accept()
             self._init()
         else:
             self.close()
 
     def _init(self):
-        self.send(bytes_data=b'Connecting ...\r\n')
+        self.send(bytes_data=b'\r\33[KConnecting ...\r')
         host = Host.objects.filter(pk=self.id).first()
         if not host:
             self.send(text_data='Unknown host\r\n')

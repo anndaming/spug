@@ -4,13 +4,13 @@
  * Released under the AGPL-3.0 License.
  */
 export default [{
-  key: 'home',
-  label: '工作台',
+  key: 'dashboard',
+  label: 'Dashboard',
   pages: [{
-    key: 'home',
-    label: '工作台',
+    key: 'dashboard',
+    label: 'Dashboard',
     perms: [
-      {key: 'view', label: '查看工作台'}
+      {key: 'view', label: '查看Dashboard'}
     ]
   }]
 }, {
@@ -24,13 +24,15 @@ export default [{
       {key: 'add', label: '新建主机'},
       {key: 'edit', label: '编辑主机'},
       {key: 'del', label: '删除主机'},
-      {key: 'console', label: 'Console'},
     ]
   }, {
     key: 'console',
-    label: 'Console',
+    label: 'Web终端',
     perms: [
-      {key: 'manager', label: '文件管理器'},
+      {key: 'view', label: '使用Web终端'},
+      {key: 'list', label: '查看文件'},
+      {key: 'upload', label: '上传文件'},
+      {key: 'del', label: '删除文件'},
     ]
   }]
 }, {
@@ -60,12 +62,21 @@ export default [{
     label: '应用管理',
     perms: [
       {key: 'view', label: '查看应用'},
-      {key: 'add', label: '新建应用'},
+      // {key: 'add', label: '新建应用'},
       {key: 'edit', label: '编辑应用'},
       {key: 'del', label: '删除应用'},
       {key: 'config', label: '查看配置'},
     ]
   }, {
+    key: 'repository',
+    label: '构建仓库',
+    perms: [
+      {key: 'view', label: '查看构建'},
+      {key: 'add', label: '新建版本'},
+      {key: 'build', label: '执行构建'},
+      {key: 'del', label: '删除版本'},
+    ]
+  },{
     key: 'request',
     label: '发布申请',
     perms: [
@@ -98,7 +109,7 @@ export default [{
     label: '环境管理',
     perms: [
       {key: 'view', label: '查看环境'},
-      {key: 'add', label: '新建环境'},
+      // {key: 'add', label: '新建环境'},
       {key: 'edit', label: '编辑环境'},
       {key: 'del', label: '删除环境'}
     ]
@@ -118,7 +129,7 @@ export default [{
     label: '应用管理',
     perms: [
       {key: 'view', label: '查看应用'},
-      {key: 'add', label: '新建应用'},
+      // {key: 'add', label: '新建应用'},
       {key: 'edit', label: '编辑应用'},
       {key: 'del', label: '删除应用'},
       {key: 'view_config', label: '查看配置'},

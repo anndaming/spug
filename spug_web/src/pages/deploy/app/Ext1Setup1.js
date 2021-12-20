@@ -28,6 +28,23 @@ export default observer(function Ext1Setup1() {
   }, [])
 
   const info = store.deploy;
+  let modePlaceholder;
+  switch (info['rst_notify']['mode']) {
+    case '0':
+      modePlaceholder = '已关闭'
+      break
+    case '1':
+      modePlaceholder = 'https://oapi.dingtalk.com/robot/send?access_token=xxx'
+      break
+    case '3':
+      modePlaceholder = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
+      break
+    case '4':
+      modePlaceholder = 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+      break
+    default:
+      modePlaceholder = '请输入'
+  }
   return (
     <Form labelCol={{span: 6}} wrapperCol={{span: 14}}>
       <Form.Item required label="发布环境" style={{marginBottom: 0}}>
@@ -43,15 +60,19 @@ export default observer(function Ext1Setup1() {
         </Form.Item>
       </Form.Item>
       <Form.Item required label="目标主机">
-        {info.host_ids.length > 0 && `已选择 ${info.host_ids.length} 台`}
-        <Button type="link" onClick={() => store.selectorVisible = true}>选择主机</Button>
+        {info.host_ids.length > 0 && <span style={{marginRight: 16}}>已选择 {info.host_ids.length} 台</span>}
+        <Button type="link" style={{padding: 0}} onClick={() => store.selectorVisible = true}>选择主机</Button>
       </Form.Item>
       <Form.Item required label="Git仓库地址">
         <Input disabled={store.isReadOnly} value={info['git_repo']} onChange={e => info['git_repo'] = e.target.value}
                placeholder="请输入Git仓库地址"/>
       </Form.Item>
       <Form.Item label="发布模式">
-        <Radio.Group buttonStyle="solid" value={info.is_parallel} onChange={e => info.is_parallel = e.target.value}>
+        <Radio.Group
+          buttonStyle="solid"
+          defaultValue={true}
+          value={info.is_parallel}
+          onChange={e => info.is_parallel = e.target.value}>
           <Radio.Button value={true}>并行</Radio.Button>
           <Radio.Button value={false}>串行</Radio.Button>
         </Radio.Group>
@@ -67,7 +88,7 @@ export default observer(function Ext1Setup1() {
       <Form.Item label="消息通知" extra={<span>
         应用审核及发布成功或失败结果通知，
         <a target="_blank" rel="noopener noreferrer"
-           href="https://spug.dev/docs/install-error/#%E9%92%89%E9%92%89%E6%94%B6%E4%B8%8D%E5%88%B0%E9%80%9A%E7%9F%A5%EF%BC%9F">钉钉收不到通知？</a>
+           href="https://spug.cc/docs/install-error/#%E9%92%89%E9%92%89%E6%94%B6%E4%B8%8D%E5%88%B0%E9%80%9A%E7%9F%A5%EF%BC%9F">钉钉收不到通知？</a>
       </span>}>
         <Input
           addonBefore={(
@@ -77,6 +98,7 @@ export default observer(function Ext1Setup1() {
               onChange={v => info['rst_notify']['mode'] = v}>
               <Select.Option value="0">关闭</Select.Option>
               <Select.Option value="1">钉钉</Select.Option>
+              <Select.Option value="4">飞书</Select.Option>
               <Select.Option value="3">企业微信</Select.Option>
               <Select.Option value="2">Webhook</Select.Option>
             </Select>
@@ -84,7 +106,7 @@ export default observer(function Ext1Setup1() {
           disabled={store.isReadOnly || info['rst_notify']['mode'] === '0'}
           value={info['rst_notify']['value']}
           onChange={e => info['rst_notify']['value'] = e.target.value}
-          placeholder="请输入"/>
+          placeholder={modePlaceholder}/>
       </Form.Item>
       <Form.Item wrapperCol={{span: 14, offset: 6}}>
         <Button

@@ -24,24 +24,19 @@ export default observer(function () {
   function handleSubmit() {
     setLoading(true);
     const formData = form.getFieldsValue();
-    let request;
-    if (store.record.id) {
-      formData['id'] = store.record.id;
-      request = http.patch('/api/account/user/', formData)
-    } else {
-      request = http.post('/api/account/user/', formData)
-    }
-    request.then(() => {
-      message.success('操作成功');
-      store.formVisible = false;
-      store.fetchRecords()
-    }, () => setLoading(false))
+    formData.id = store.record.id;
+    http.post('/api/account/user/', formData)
+      .then(() => {
+        message.success('操作成功');
+        store.formVisible = false;
+        store.fetchRecords()
+      }, () => setLoading(false))
   }
 
   return (
     <Modal
       visible
-      width={800}
+      width={700}
       maskClosable={false}
       title={store.record.id ? '编辑账户' : '新建账户'}
       onCancel={() => store.formVisible = false}
@@ -54,14 +49,12 @@ export default observer(function () {
         <Form.Item required name="nickname" label="姓名">
           <Input placeholder="请输入姓名"/>
         </Form.Item>
-        {store.record.id === undefined && (
-          <Form.Item required name="password" label="密码">
-            <Input type="password" placeholder="请输入密码"/>
-          </Form.Item>
-        )}
-        <Form.Item required label="角色" style={{marginBottom: 0}}>
-          <Form.Item name="role_id" style={{display: 'inline-block', width: '80%'}}>
-            <Select placeholder="请选择">
+        <Form.Item required hidden={store.record.id} name="password" label="密码">
+          <Input type="password" placeholder="请输入密码"/>
+        </Form.Item>
+        <Form.Item hidden={store.record.is_supper} label="角色" style={{marginBottom: 0}}>
+          <Form.Item name="role_ids" style={{display: 'inline-block', width: '80%'}} extra="权限最大化原则，组合多个角色权限。">
+            <Select mode="multiple" placeholder="请选择">
               {roleStore.records.map(item => (
                 <Select.Option value={item.id} key={item.id}>{item.name}</Select.Option>
               ))}
@@ -70,6 +63,16 @@ export default observer(function () {
           <Form.Item style={{display: 'inline-block', width: '20%', textAlign: 'right'}}>
             <Link to="/system/role">新建角色</Link>
           </Form.Item>
+        </Form.Item>
+        <Form.Item
+          name="wx_token"
+          label="微信Token"
+          extra={(
+            <span>
+              如果启用了MFA（两步验证）则该项为必填。
+              <a target="_blank" rel="noopener noreferrer" href="https://spug.cc/docs/wx-token/">什么是微信Token？</a>
+            </span>)}>
+          <Input placeholder="请输入微信Token"/>
         </Form.Item>
       </Form>
     </Modal>

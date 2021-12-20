@@ -28,7 +28,6 @@ export default observer(function () {
   return (
     <Modal
       visible
-      width={800}
       maskClosable={false}
       title={store.record.id ? '编辑环境' : '新建环境'}
       onCancel={() => store.formVisible = false}
@@ -38,7 +37,12 @@ export default observer(function () {
         <Form.Item required name="name" label="环境名称">
           <Input placeholder="请输入环境名称，例如：开发环境"/>
         </Form.Item>
-        <Form.Item required name="key" label="唯一标识符">
+        <Form.Item
+          required
+          name="key"
+          label="唯一标识符"
+          tooltip="环境的唯一标识符，会在配置中心API中使用，具体请参考官方文档。"
+          extra="可以由字母、数字、-和下划线组成。">
           <Input placeholder="请输入唯一标识符，例如：dev"/>
         </Form.Item>
         <Form.Item name="desc" label="备注信息">

@@ -5,11 +5,12 @@
  */
 import { observable, computed } from 'mobx';
 import { message } from 'antd';
-import http from 'libs/http';
+import { http, includes } from 'libs';
+import lds from 'lodash';
 
 class Store {
   counter = {};
-  @observable records = [];
+  @observable records = null;
   @observable treeData = [];
   @observable groups = {};
   @observable group = {};
@@ -20,18 +21,19 @@ class Store {
   @observable isFetching = false;
   @observable formVisible = false;
   @observable importVisible = false;
+  @observable syncVisible = false;
   @observable cloudImport = null;
   @observable detailVisible = false;
   @observable selectorVisible = false;
 
-  @observable f_name;
-  @observable f_host;
+  @observable f_word;
+  @observable f_status = '';
 
   @computed get dataSource() {
     let records = [];
-    if (this.group.all_host_ids) records = this.records.filter(x => this.group.all_host_ids.includes(x.id));
-    if (this.f_name) records = records.filter(x => x.name.toLowerCase().includes(this.f_name.toLowerCase()));
-    if (this.f_host) records = records.filter(x => x.hostname.toLowerCase().includes(this.f_host.toLowerCase()));
+    if (this.group.all_host_ids) records = this.records ? this.records.filter(x => this.group.all_host_ids.includes(x.id)) : [];
+    if (this.f_word) records = records.filter(x => includes(x.name, this.f_word) || includes(x.public_ip_address, this.f_word) || includes(x.private_ip_address, this.f_word));
+    if (this.f_status !== '') records = records.filter(x => this.f_status === x.is_verified);
     return records
   }
 
@@ -39,10 +41,10 @@ class Store {
     this.isFetching = true;
     return http.get('/api/host/')
       .then(res => {
+        const tmp = {};
         this.records = res;
-        for (let item of this.records) {
-          this.idMap[item.id] = item
-        }
+        this.records.map(item => tmp[item.id] = item);
+        this.idMap = tmp;
         this._makeCounter();
         this.refreshCounter()
       })
@@ -53,12 +55,28 @@ class Store {
     this.grpFetching = true;
     return http.get('/api/host/group/')
       .then(res => {
-        this.treeData = res.treeData;
         this.groups = res.groups;
-        if (!this.group.key) this.group = this.treeData[0];
-        this.refreshCounter()
+        this.refreshCounter(res.treeData)
       })
       .finally(() => this.grpFetching = false)
+  }
+
+  initial = () => {
+    this.isFetching = true;
+    this.grpFetching = true;
+    return http.all([http.get('/api/host/'), http.get('/api/host/group/')])
+      .then(http.spread((res1, res2) => {
+        this.records = res1;
+        this.records.map(item => this.idMap[item.id] = item);
+        this.group = res2.treeData[0] || {};
+        this.groups = res2.groups;
+        this._makeCounter();
+        this.refreshCounter(res2.treeData)
+      }))
+      .finally(() => {
+        this.isFetching = false;
+        this.grpFetching = false
+      })
   }
 
   updateGroup = (group, host_ids) => {
@@ -75,6 +93,10 @@ class Store {
     this.record = info
   }
 
+  showSync = () => {
+    this.syncVisible = !this.syncVisible
+  }
+
   showDetail = (info) => {
     this.record = info;
     this.detailVisible = true;
@@ -85,12 +107,13 @@ class Store {
     this.selectorVisible = true;
   }
 
-  refreshCounter = () => {
-    if (this.treeData.length && this.records.length) {
-      for (let item of this.treeData) {
+  refreshCounter = (treeData) => {
+    treeData = treeData || lds.cloneDeep(this.treeData);
+    if (treeData.length && this.records !== null) {
+      for (let item of treeData) {
         this._refreshCounter(item)
       }
-      this.treeData = [...this.treeData]
+      this.treeData = treeData
     }
   }
 
@@ -101,6 +124,7 @@ class Store {
       item.all_host_ids = item.all_host_ids.concat(ids)
     }
     item.all_host_ids = Array.from(new Set(item.all_host_ids));
+    if (this.group.key === item.key) this.group = item;
     return item.all_host_ids
   }
 

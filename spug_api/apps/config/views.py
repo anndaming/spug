@@ -3,13 +3,15 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from django.db.models import F
-from libs import json_response, JsonParser, Argument
-from apps.app.models import Deploy
+from libs import json_response, JsonParser, Argument, auth
+from apps.app.models import Deploy, App
 from apps.config.models import *
 import json
+import re
 
 
 class EnvironmentView(View):
+    @auth('deploy.repository.view|deploy.request.view|config.env.view')
     def get(self, request):
         query = {}
         if not request.user.is_supper:
@@ -17,6 +19,7 @@ class EnvironmentView(View):
         envs = Environment.objects.filter(**query)
         return json_response(envs)
 
+    @auth('config.env.add|config.env.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
@@ -25,7 +28,9 @@ class EnvironmentView(View):
             Argument('desc', required=False)
         ).parse(request.body)
         if error is None:
-            form.key = form.key.replace("'", '')
+            if not re.fullmatch(r'[-\w]+', form.key, re.ASCII):
+                return json_response(error='标识符必须为字母、数字、-和下划线的组合')
+
             env = Environment.objects.filter(key=form.key).first()
             if env and env.id != form.id:
                 return json_response(error=f'唯一标识符 {form.key} 已存在，请更改后重试')
@@ -35,10 +40,9 @@ class EnvironmentView(View):
                 env = Environment.objects.create(created_by=request.user, **form)
                 env.sort_id = env.id
                 env.save()
-                if request.user.role:
-                    request.user.role.add_deploy_perm('envs', env.id)
         return json_response(error=error)
 
+    @auth('config.env.edit')
     def patch(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
@@ -59,24 +63,28 @@ class EnvironmentView(View):
             env.save()
         return json_response(error=error)
 
+    @auth('config.env.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
-            if Config.objects.filter(env_id=form.id).exists():
-                return json_response(error='该环境已存在关联的配置信息，请删除相关配置后再尝试删除')
             if Deploy.objects.filter(env_id=form.id).exists():
                 return json_response(error='该环境已关联了发布配置，请删除相关发布配置后再尝试删除')
+            # auto delete configs
+            Config.objects.filter(env_id=form.id).delete()
+            ConfigHistory.objects.filter(env_id=form.id).delete()
             Environment.objects.filter(pk=form.id).delete()
         return json_response(error=error)
 
 
 class ServiceView(View):
+    @auth('config.src.view')
     def get(self, request):
         services = Service.objects.all()
         return json_response(services)
 
+    @auth('config.src.add|config.src.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
@@ -85,6 +93,9 @@ class ServiceView(View):
             Argument('desc', required=False)
         ).parse(request.body)
         if error is None:
+            if not re.fullmatch(r'[-\w]+', form.key, re.ASCII):
+                return json_response(error='标识符必须为字母、数字、-和下划线的组合')
+
             service = Service.objects.filter(key=form.key).first()
             if service and service.id != form.id:
                 return json_response(error=f'唯一标识符 {form.key} 已存在，请更改后重试')
@@ -94,18 +105,28 @@ class ServiceView(View):
                 Service.objects.create(created_by=request.user, **form)
         return json_response(error=error)
 
+    @auth('config.src.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
-            if Config.objects.filter(type='src', o_id=form.id).exists():
-                return json_response(error='该服务已存在关联的配置信息，请删除相关配置后再尝试删除')
+            rel_apps = []
+            for app in App.objects.filter(rel_services__isnull=False):
+                rel_services = json.loads(app.rel_services)
+                if form.id in rel_services:
+                    rel_apps.append(app.name)
+            if rel_apps:
+                return json_response(error=f'该服务在配置中心已被 "{", ".join(rel_apps)}" 依赖，请解除依赖关系后再尝试删除。')
+            # auto delete configs
+            Config.objects.filter(type='src', o_id=form.id).delete()
+            ConfigHistory.objects.filter(type='src', o_id=form.id).delete()
             Service.objects.filter(pk=form.id).delete()
         return json_response(error=error)
 
 
 class ConfigView(View):
+    @auth('config.src.view_config|config.app.view_config')
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='未指定操作对象'),
@@ -121,6 +142,7 @@ class ConfigView(View):
             return json_response(data)
         return json_response(error=error)
 
+    @auth('config.src.edit_config|config.app.edit_config')
     def post(self, request):
         form, error = JsonParser(
             Argument('o_id', type=int, help='缺少必要参数'),
@@ -137,10 +159,14 @@ class ConfigView(View):
             form.updated_by = request.user
             envs = form.pop('envs')
             for env_id in envs:
+                cf = Config.objects.filter(o_id=form.o_id, type=form.type, env_id=env_id, key=form.key).first()
+                if cf:
+                    raise Exception(f'{cf.env.name} 中已存在该Key')
                 Config.objects.create(env_id=env_id, **form)
                 ConfigHistory.objects.create(action='1', env_id=env_id, **form)
         return json_response(error=error)
 
+    @auth('config.src.edit_config|config.app.edit_config')
     def patch(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='缺少必要参数'),
@@ -167,6 +193,7 @@ class ConfigView(View):
             config.save()
         return json_response(error=error)
 
+    @auth('config.src.edit_config|config.app.edit_config')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='未指定操作对象')
@@ -187,6 +214,7 @@ class ConfigView(View):
 
 
 class HistoryView(View):
+    @auth('config.src.view_config|config.app.view_config')
     def post(self, request):
         form, error = JsonParser(
             Argument('o_id', type=int, help='缺少必要参数'),
@@ -204,6 +232,7 @@ class HistoryView(View):
         return json_response(error=error)
 
 
+@auth('config.src.view_config|config.app.view_config')
 def post_diff(request):
     form, error = JsonParser(
         Argument('o_id', type=int, help='缺少必要参数'),
@@ -221,6 +250,7 @@ def post_diff(request):
     return json_response(error=error)
 
 
+@auth('config.src.edit_config|config.app.edit_config')
 def parse_json(request):
     form, error = JsonParser(
         Argument('o_id', type=int, help='缺少必要参数'),
@@ -234,6 +264,7 @@ def parse_json(request):
     return json_response(error=error)
 
 
+@auth('config.src.edit_config|config.app.edit_config')
 def parse_text(request):
     form, error = JsonParser(
         Argument('o_id', type=int, help='缺少必要参数'),

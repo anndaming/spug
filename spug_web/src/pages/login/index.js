@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Tabs, Modal } from 'antd';
+import { Form, Input, Button, Tabs, Modal, message } from 'antd';
 import { UserOutlined, LockOutlined, CopyrightOutlined, GithubOutlined, MailOutlined } from '@ant-design/icons';
 import styles from './login.module.css';
 import history from 'libs/history';
@@ -21,13 +21,17 @@ export default function () {
   const [counter, setCounter] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loginType, setLoginType] = useState('default');
+  const [codeVisible, setCodeVisible] = useState(false);
+  const [codeLoading, setCodeLoading] = useState(false);
 
   useEffect(() => {
     envStore.records = [];
     appStore.records = [];
     requestStore.records = [];
     requestStore.deploys = [];
-    hostStore.records = [];
+    hostStore.records = null;
+    hostStore.groups = {};
+    hostStore.treeData = [];
     execStore.hosts = [];
   }, [])
 
@@ -40,19 +44,24 @@ export default function () {
   }, [counter])
 
   function handleSubmit() {
-    setLoading(true);
     const formData = form.getFieldsValue();
+    if (codeVisible && !formData.captcha) return message.error('请输入验证码');
+    setLoading(true);
     formData['type'] = loginType;
     http.post('/api/account/login/', formData)
       .then(data => {
-        if (!data['has_real_ip']) {
+        if (data['required_mfa']) {
+          setCodeVisible(true);
+          setCounter(30);
+          setLoading(false)
+        } else if (!data['has_real_ip']) {
           Modal.warning({
             title: '安全警告',
             className: styles.tips,
             content: <div>
               未能获取到访问者的真实IP，无法提供基于请求来源IP的合法性验证，详细信息请参考
               <a target="_blank"
-                 href="https://spug.dev/docs/practice/#%E5%AE%89%E5%85%A8%E6%80%A7%E5%AE%9E%E8%B7%B5%E6%8C%87%E5%8D%97"
+                 href="https://spug.cc/docs/practice/#%E5%AE%89%E5%85%A8%E6%80%A7%E5%AE%9E%E8%B7%B5%E6%8C%87%E5%8D%97"
                  rel="noopener noreferrer">官方文档</a>。
             </div>,
             onOk: () => doLogin(data)
@@ -69,7 +78,6 @@ export default function () {
     localStorage.setItem('nickname', data['nickname']);
     localStorage.setItem('is_supper', data['is_supper']);
     localStorage.setItem('permissions', JSON.stringify(data['permissions']));
-    localStorage.setItem('host_perms', JSON.stringify(data['host_perms']));
     updatePermissions();
     if (history.location.state && history.location.state['from']) {
       history.push(history.location.state['from'])
@@ -79,14 +87,19 @@ export default function () {
   }
 
   function handleCaptcha() {
-    setCounter(60);
+    setCodeLoading(true);
+    const formData = form.getFieldsValue(['username', 'password']);
+    formData['type'] = loginType;
+    http.post('/api/account/login/', formData)
+      .then(() => setCounter(30))
+      .finally(() => setCodeLoading(false))
   }
 
   return (
     <div className={styles.container}>
       <div className={styles.titleContainer}>
         <div><img className={styles.logo} src={logo} alt="logo"/></div>
-        <div className={styles.desc}>灵活、强大、功能全面的开源运维平台</div>
+        <div className={styles.desc}>灵活、强大、易用的开源运维平台</div>
       </div>
       <div className={styles.formContainer}>
         <Tabs className={styles.tabs} onTabClick={v => setLoginType(v)}>
@@ -110,7 +123,7 @@ export default function () {
               onPressEnter={handleSubmit}
               prefix={<LockOutlined className={styles.icon}/>}/>
           </Form.Item>
-          <Form.Item name="captcha" className={styles.formItem}>
+          <Form.Item hidden={!codeVisible} name="captcha" className={styles.formItem}>
             <div style={{display: 'flex'}}>
               <Form.Item noStyle name="captcha">
                 <Input
@@ -122,7 +135,8 @@ export default function () {
               {counter > 0 ? (
                 <Button disabled size="large" style={{marginLeft: 8}}>{counter} 秒后重新获取</Button>
               ) : (
-                <Button size="large" style={{marginLeft: 8}} onClick={handleCaptcha}>获取验证码</Button>
+                <Button size="large" loading={codeLoading} style={{marginLeft: 8}}
+                        onClick={handleCaptcha}>获取验证码</Button>
               )}
             </div>
           </Form.Item>
@@ -139,11 +153,11 @@ export default function () {
 
       <div className={styles.footerZone}>
         <div className={styles.linksZone}>
-          <a className={styles.links} title="官网" href="https://www.spug.dev" target="_blank"
+          <a className={styles.links} title="官网" href="https://spug.cc" target="_blank"
              rel="noopener noreferrer">官网</a>
           <a className={styles.links} title="Github" href="https://github.com/openspug/spug" target="_blank"
              rel="noopener noreferrer"><GithubOutlined/></a>
-          <a title="文档" href="https://www.spug.dev/docs/about-spug/" target="_blank"
+          <a title="文档" href="https://spug.cc/docs/about-spug/" target="_blank"
              rel="noopener noreferrer">文档</a>
         </div>
         <div style={{color: 'rgba(0, 0, 0, .45)'}}>Copyright <CopyrightOutlined/> 2021 By OpenSpug</div>

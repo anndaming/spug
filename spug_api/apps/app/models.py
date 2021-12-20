@@ -2,10 +2,13 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
+from django.conf import settings
 from libs import ModelMixin, human_datetime
 from apps.account.models import User
 from apps.config.models import Environment
+import subprocess
 import json
+import os
 
 
 class App(models.Model, ModelMixin):
@@ -56,14 +59,22 @@ class Deploy(models.Model, ModelMixin):
 
     def to_dict(self, *args, **kwargs):
         deploy = super().to_dict(*args, **kwargs)
+        deploy['app_key'] = self.app_key if hasattr(self, 'app_key') else None
         deploy['app_name'] = self.app_name if hasattr(self, 'app_name') else None
         deploy['host_ids'] = json.loads(self.host_ids)
         deploy['rst_notify'] = json.loads(self.rst_notify)
         deploy.update(self.extend_obj.to_dict())
         return deploy
 
+    def delete(self, using=None, keep_parents=False):
+        deploy_id = self.id
+        super().delete(using, keep_parents)
+        repo_dir = os.path.join(settings.REPOS_DIR, str(deploy_id))
+        build_dir = os.path.join(settings.BUILD_DIR, f'{deploy_id}_*')
+        subprocess.Popen(f'rm -rf {repo_dir} {repo_dir + "_*"} {build_dir}', shell=True)
+
     def __repr__(self):
-        return '<Deploy app_id=%r>' % self.app_id
+        return '<Deploy app_id=%r env_id=%r>' % (self.app_id, self.env_id)
 
     class Meta:
         db_table = 'deploys'
@@ -98,6 +109,7 @@ class DeployExtend2(models.Model, ModelMixin):
     deploy = models.OneToOneField(Deploy, primary_key=True, on_delete=models.CASCADE)
     server_actions = models.TextField()
     host_actions = models.TextField()
+    require_upload = models.BooleanField(default=False)
 
     def to_dict(self, *args, **kwargs):
         tmp = super().to_dict(*args, **kwargs)

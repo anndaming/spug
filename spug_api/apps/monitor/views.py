@@ -2,26 +2,29 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
-from libs import json_response, JsonParser, Argument, human_datetime
-from apps.monitor.models import Detection
-from django_redis import get_redis_connection
 from django.conf import settings
+from django_redis import get_redis_connection
+from libs import json_response, JsonParser, Argument, human_datetime, auth
+from apps.monitor.models import Detection
 from apps.monitor.executors import dispatch
+from apps.setting.utils import AppSetting
 import json
 
 
 class DetectionView(View):
+    @auth('dashboard.dashboard.view|monitor.monitor.view')
     def get(self, request):
         detections = Detection.objects.all()
         groups = [x['group'] for x in detections.order_by('group').values('group').distinct()]
-        return json_response({'groups': groups, 'detections': [x.to_dict() for x in detections]})
+        return json_response({'groups': groups, 'detections': [x.to_view() for x in detections]})
 
+    @auth('monitor.monitor.add|monitor.monitor.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
             Argument('name', help='请输入任务名称'),
             Argument('group', help='请选择任务分组'),
-            Argument('addr', help='请输入监控地址'),
+            Argument('targets', type=list, filter=lambda x: len(x), help='请输入监控地址'),
             Argument('type', filter=lambda x: x in dict(Detection.TYPES), help='请选择监控类型'),
             Argument('extra', required=False),
             Argument('desc', required=False),
@@ -32,6 +35,11 @@ class DetectionView(View):
             Argument('notify_mode', type=list, help='请选择报警方式'),
         ).parse(request.body)
         if error is None:
+            if set(form.notify_mode).intersection(['1', '2', '4']):
+                if not AppSetting.get_default('spug_key'):
+                    return json_response(error='报警方式 微信、短信、邮件需要配置调用凭据（系统设置/基本设置），请配置后再启用该报警方式。')
+
+            form.targets = json.dumps(form.targets)
             form.notify_grp = json.dumps(form.notify_grp)
             form.notify_mode = json.dumps(form.notify_mode)
             if form.id:
@@ -52,6 +60,7 @@ class DetectionView(View):
                 rds_cli.lpush(settings.MONITOR_KEY, json.dumps(form))
         return json_response(error=error)
 
+    @auth('monitor.monitor.edit')
     def patch(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象'),
@@ -63,13 +72,14 @@ class DetectionView(View):
                 if form.is_active:
                     task = Detection.objects.filter(pk=form.id).first()
                     message = {'id': form.id, 'action': 'add'}
-                    message.update(task.to_dict(selects=('addr', 'extra', 'rate', 'type')))
+                    message.update(task.to_dict(selects=('targets', 'extra', 'rate', 'type', 'threshold', 'quiet')))
                 else:
                     message = {'id': form.id, 'action': 'remove'}
                 rds_cli = get_redis_connection()
                 rds_cli.lpush(settings.MONITOR_KEY, json.dumps(message))
         return json_response(error=error)
 
+    @auth('monitor.monitor.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
@@ -83,13 +93,14 @@ class DetectionView(View):
         return json_response(error=error)
 
 
+@auth('monitor.monitor.add|monitor.monitor.edit')
 def run_test(request):
     form, error = JsonParser(
         Argument('type', help='请选择监控类型'),
-        Argument('addr', help='请输入监控地址'),
+        Argument('targets', type=list, filter=lambda x: len(x), help='请输入监控地址'),
         Argument('extra', required=False)
     ).parse(request.body)
     if error is None:
-        is_success, message = dispatch(form.type, form.addr, form.extra, True)
+        is_success, message = dispatch(form.type, form.targets[0], form.extra)
         return json_response({'is_success': is_success, 'message': message})
     return json_response(error=error)

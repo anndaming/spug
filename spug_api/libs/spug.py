@@ -6,120 +6,136 @@ from apps.setting.utils import AppSetting
 from apps.notify.models import Notify
 from libs.mail import Mail
 from libs.utils import human_datetime
+from threading import Thread
 import requests
 import json
 
-spug_server = 'http://spug-wx.qbangmang.com'
+spug_server = 'https://api.spug.cc'
 notify_source = 'monitor'
 
 
-def _parse_args(grp):
+def send_login_wx_code(wx_token, code):
+    url = f'{spug_server}/apis/login/wx/'
     spug_key = AppSetting.get_default('spug_key')
-    return spug_key, sum([json.loads(x.contacts) for x in Group.objects.filter(id__in=grp)], [])
-
-
-def _handle_response(res, mode):
+    res = requests.post(url, json={'token': spug_key, 'user': wx_token, 'code': code}, timeout=30)
     if res.status_code != 200:
-        Notify.make_notify(notify_source, '1', '告警通知发送失败', f'返回状态码：{res.status_code}, 请求URL：{res.url}')
-    if mode in ['dd', 'wx']:
-        res = res.json()
-        if res.get('errcode') != 0:
-            Notify.make_notify(notify_source, '1', '告警通知发送失败', f'返回数据：{res}')
-    if mode == 'spug':
-        res = res.json()
-        if res.get('error'):
-            Notify.make_notify(notify_source, '1', '告警通知发送失败', f'错误信息：{res}')
+        raise Exception(f'status code: {res.status_code}')
+    res = res.json()
+    if res.get('error'):
+        raise Exception(res['error'])
 
 
-def notify_by_wx(event, obj):
-    spug_key, u_ids = _parse_args(obj.grp)
-    if not spug_key:
-        Notify.make_notify(notify_source, '1', '发送报警信息失败', '未配置报警服务调用凭据，请在系统管理/系统设置/报警服务设置中配置。')
-        return
-    users = set(x.wx_token for x in Contact.objects.filter(id__in=u_ids, wx_token__isnull=False))
-    if users:
+class Notification:
+    def __init__(self, grp, event, target, title, message, duration):
+        self.grp = grp
+        self.event = event
+        self.title = title
+        self.target = target
+        self.message = message
+        self.duration = duration
+        self.spug_key = AppSetting.get_default('spug_key')
+        self.u_ids = []
+
+    @staticmethod
+    def handle_request(url, data, mode=None):
+        try:
+            res = requests.post(url, json=data, timeout=30)
+        except Exception as e:
+            return Notify.make_system_notify('通知发送失败', f'接口调用异常: {e}')
+        if res.status_code != 200:
+            return Notify.make_system_notify('通知发送失败', f'返回状态码：{res.status_code}, 请求URL：{res.url}')
+
+        if mode in ['dd', 'wx']:
+            res = res.json()
+            if res.get('errcode') == 0:
+                return
+        elif mode == 'spug':
+            res = res.json()
+            if not res.get('error'):
+                return
+        elif mode == 'fs':
+            res = res.json()
+            if res.get('StatusCode') == 0:
+                return
+        else:
+            raise NotImplementedError
+        Notify.make_system_notify('通知发送失败', f'返回数据：{res}')
+
+    def monitor_by_wx(self, users):
+        if not self.spug_key:
+            Notify.make_monitor_notify('发送报警信息失败', '未配置报警服务调用凭据，请在系统管理/系统设置/基本设置/调用凭据中配置。')
+            return
         data = {
-            'token': spug_key,
-            'event': event,
-            'subject': obj.name,
-            'desc': obj.out,
-            'remark': f'故障持续{obj.duration}' if event == '2' else None,
+            'token': self.spug_key,
+            'event': self.event,
+            'subject': f'{self.title} >> {self.target}',
+            'desc': self.message,
+            'remark': f'故障持续{self.duration}' if self.event == '2' else None,
             'users': list(users)
         }
-        res = requests.post(f'{spug_server}/apis/notify/wx/', json=data)
-        _handle_response(res, 'spug')
-    else:
-        Notify.make_notify(notify_source, '1', '发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的微信Token。')
+        self.handle_request(f'{spug_server}/apis/notify/wx/', data, 'spug')
 
-
-def notify_by_email(event, obj):
-    spug_key, u_ids = _parse_args(obj.grp)
-    users = set(x.email for x in Contact.objects.filter(id__in=u_ids, email__isnull=False))
-    if users:
-        mail_service = json.loads(AppSetting.get_default('mail_service', '{}'))
-        body = ['告警名称：' + obj.name, '告警时间：' + human_datetime(), '告警描述：' + obj.out]
-        if event == '2':
-            body.append('故障持续：' + obj.duration)
+    def monitor_by_email(self, users):
+        mail_service = AppSetting.get_default('mail_service', {})
+        body = [
+            f'告警名称：{self.title}',
+            f'告警对象：{self.target}',
+            f'{"告警" if self.event == "1" else "恢复"}时间：{human_datetime()}',
+            f'告警描述：{self.message}'
+        ]
+        if self.event == '2':
+            body.append('故障持续：' + self.duration)
         if mail_service.get('server'):
-            event_map = {'1': '告警发生', '2': '告警恢复'}
-            subject = f'{event_map[event]}-{obj.name}'
+            event_map = {'1': '监控告警通知', '2': '告警恢复通知'}
+            subject = f'{event_map[self.event]}-{self.title}'
             mail = Mail(**mail_service)
             mail.send_text_mail(users, subject, '\r\n'.join(body) + '\r\n\r\n自动发送，请勿回复。')
-        elif spug_key:
+        elif self.spug_key:
             data = {
-                'token': spug_key,
-                'event': event,
-                'subject': obj.name,
+                'token': self.spug_key,
+                'event': self.event,
+                'subject': self.title,
                 'body': '\r\n'.join(body),
                 'users': list(users)
             }
-            res = requests.post(f'{spug_server}/apis/notify/mail/', json=data)
-            _handle_response(res, 'spug')
+            self.handle_request(f'{spug_server}/apis/notify/mail/', data, 'spug')
         else:
-            Notify.make_notify(notify_source, '1', '发送报警信息失败', '未配置报警服务调用凭据，请在系统管理/系统设置/报警服务设置中配置。')
-    else:
-        Notify.make_notify(notify_source, '1', '发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的邮件地址。')
+            Notify.make_monitor_notify('发送报警信息失败', '未配置报警服务调用凭据，请在系统管理/系统设置/报警服务设置中配置。')
 
-
-def notify_by_dd(event, obj):
-    _, u_ids = _parse_args(obj.grp)
-    users = set(x.ding for x in Contact.objects.filter(id__in=u_ids, ding__isnull=False))
-    if users:
+    def monitor_by_dd(self, users):
         texts = [
-            '## %s ## ' % ('监控告警通知' if event == '1' else '告警恢复通知'),
-            f'**告警名称：** <font color="#{"f90202" if event == "1" else "008000"}">{obj.name}</font> ',
-            f'**告警时间：** {human_datetime()} ',
-            f'**告警描述：** {obj.out} ',
+            '## %s ## ' % ('监控告警通知' if self.event == '1' else '告警恢复通知'),
+            f'**告警名称：** <font color="#{"f90202" if self.event == "1" else "008000"}">{self.title}</font> ',
+            f'**告警对象：** {self.target} ',
+            f'**{"告警" if self.event == "1" else "恢复"}时间：** {human_datetime()} ',
+            f'**告警描述：** {self.message} ',
         ]
-        if event == '2':
-            texts.append(f'**持续时间：** {obj.duration} ')
+        if self.event == '2':
+            texts.append(f'**持续时间：** {self.duration} ')
         data = {
             'msgtype': 'markdown',
             'markdown': {
                 'title': '监控告警通知',
                 'text': '\n\n'.join(texts) + '\n\n> ###### 来自 Spug运维平台'
+            },
+            'at': {
+                'isAtAll': True
             }
         }
         for url in users:
-            res = requests.post(url, json=data)
-            _handle_response(res, 'dd')
-    else:
-        Notify.make_notify(notify_source, '1', '发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的钉钉。')
+            self.handle_request(url, data, 'dd')
 
-
-def notify_by_qy_wx(event, obj):
-    _, u_ids = _parse_args(obj.grp)
-    users = set(x.qy_wx for x in Contact.objects.filter(id__in=u_ids, qy_wx__isnull=False))
-    if users:
-        color, title = ('warning', '监控告警通知') if event == '1' else ('info', '告警恢复通知')
+    def monitor_by_qy_wx(self, users):
+        color, title = ('warning', '监控告警通知') if self.event == '1' else ('info', '告警恢复通知')
         texts = [
             f'## {title}',
-            f'**告警名称：** <font color="{color}">{obj.name}</font> ',
-            f'**告警时间：** {human_datetime()} ',
-            f'**告警描述：** {obj.out} ',
+            f'**告警名称：** <font color="{color}">{self.title}</font> ',
+            f'**告警对象：** {self.target}',
+            f'**{"告警" if self.event == "1" else "恢复"}时间：** {human_datetime()} ',
+            f'**告警描述：** {self.message} ',
         ]
-        if event == '2':
-            texts.append(f'**持续时间：** {obj.duration} ')
+        if self.event == '2':
+            texts.append(f'**持续时间：** {self.duration} ')
         data = {
             'msgtype': 'markdown',
             'markdown': {
@@ -127,7 +143,32 @@ def notify_by_qy_wx(event, obj):
             }
         }
         for url in users:
-            res = requests.post(url, json=data)
-            _handle_response(res, 'wx')
-    else:
-        Notify.make_notify(notify_source, '1', '发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的企业微信。')
+            self.handle_request(url, data, 'wx')
+
+    def dispatch_monitor(self, modes):
+        self.u_ids = sum([json.loads(x.contacts) for x in Group.objects.filter(id__in=self.grp)], [])
+        for mode in modes:
+            if mode == '1':
+                users = set(x.wx_token for x in Contact.objects.filter(id__in=self.u_ids, wx_token__isnull=False))
+                if not users:
+                    Notify.make_monitor_notify('发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的微信Token。')
+                    continue
+                self.monitor_by_wx(users)
+            elif mode == '3':
+                users = set(x.ding for x in Contact.objects.filter(id__in=self.u_ids, ding__isnull=False))
+                if not users:
+                    Notify.make_monitor_notify('发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的钉钉。')
+                    continue
+                self.monitor_by_dd(users)
+            elif mode == '4':
+                users = set(x.email for x in Contact.objects.filter(id__in=self.u_ids, email__isnull=False))
+                if not users:
+                    Notify.make_monitor_notify('发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的邮件地址。')
+                    continue
+                self.monitor_by_email(users)
+            elif mode == '5':
+                users = set(x.qy_wx for x in Contact.objects.filter(id__in=self.u_ids, qy_wx__isnull=False))
+                if not users:
+                    Notify.make_monitor_notify('发送报警信息失败', '未找到可用的通知对象，请确保设置了相关报警联系人的企业微信。')
+                    continue
+                self.monitor_by_qy_wx(users)

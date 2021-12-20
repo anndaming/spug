@@ -5,20 +5,21 @@
  */
 import { observable, computed } from "mobx";
 import http from 'libs/http';
+import moment from 'moment';
 import lds from 'lodash';
 
 class Store {
   @observable records = [];
   @observable record = {};
   @observable counter = {};
-  @observable box = null;
   @observable tabs = [];
-  @observable tabModes = {};
   @observable isFetching = false;
   @observable addVisible = false;
   @observable ext1Visible = false;
   @observable ext2Visible = false;
+  @observable batchVisible = false;
   @observable approveVisible = false;
+  @observable rollbackVisible = false;
 
   @observable f_status = 'all';
   @observable f_app_id;
@@ -31,9 +32,9 @@ class Store {
     if (this.f_app_id) data = data.filter(x => x.app_id === this.f_app_id)
     if (this.f_env_id) data = data.filter(x => x.env_id === this.f_env_id)
     if (this.f_s_date) data = data.filter(x => {
-        const date = x.created_at.substr(0, 10);
-        return date >= this.f_s_date && date <= this.f_e_date
-      })
+      const date = x.created_at.substr(0, 10);
+      return date >= this.f_s_date && date <= this.f_e_date
+    })
     if (this.f_status !== 'all') {
       if (this.f_status === '99') {
         data = data.filter(x => ['-1', '2'].includes(x.status))
@@ -51,6 +52,19 @@ class Store {
       .then(this._updateCounter)
       .finally(() => this.isFetching = false)
   };
+
+  fetchInfo = (id) => {
+    http.get('/api/deploy/request/info/', {params: {id}})
+      .then(res => {
+        for (let item of this.records) {
+          if (item.id === id) {
+            Object.assign(item, res)
+            break
+          }
+        }
+      })
+      .then(this._updateCounter)
+  }
 
   _updateCounter = () => {
     const counter = {'all': 0, '-3': 0, '0': 0, '1': 0, '3': 0, '99': 0};
@@ -83,7 +97,8 @@ class Store {
   };
 
   confirmAdd = (deploy) => {
-    this.record = {deploy_id: deploy.id, app_host_ids: deploy.host_ids};
+    const {id, host_ids, require_upload} = deploy;
+    this.record = {deploy_id: id, app_host_ids: host_ids, require_upload};
     if (deploy.extend === '1') {
       this.ext1Visible = true
     } else {
@@ -93,19 +108,15 @@ class Store {
   };
 
   rollback = (info) => {
-    this.record = lds.pick(info, ['deploy_id', 'app_host_ids', 'host_ids']);
-    this.record.type = '2';
-    this.record.rb_id = info.repository_id;
+    this.record = lds.pick(info, ['deploy_id', 'host_ids']);
+    this.record.app_host_ids = info.host_ids;
     this.record.name = `${info.name} - 回滚`;
-    if (info.app_extend === '1') {
-      this.ext1Visible = true
-    } else {
-      this.ext2Visible = true
-    }
+    this.rollbackVisible = true
   }
 
   showForm = (info) => {
     this.record = info;
+    if (info.plan) this.record.plan = moment(info.plan);
     if (info['app_extend'] === '1') {
       this.ext1Visible = true
     } else {
@@ -122,22 +133,24 @@ class Store {
     const index = lds.findIndex(this.tabs, x => x.id === info.id);
     if (isClose) {
       if (index !== -1) {
-        this.tabs.splice(index, 1)
-        delete this.tabModes[info.id]
+        this.tabs[index] = {}
       }
+      this.fetchInfo(info.id)
     } else if (index === -1) {
-      this.tabModes[info.id] = true
       this.tabs.push(info)
     }
   };
 
   readConsole = (info) => {
-    this.tabModes[info.id] = false
     const index = lds.findIndex(this.tabs, x => x.id === info.id);
     if (index === -1) {
       info = Object.assign({}, info, {mode: 'read'})
       this.tabs.push(info)
     }
+  };
+
+  leaveConsole = () => {
+    this.tabs = []
   }
 }
 

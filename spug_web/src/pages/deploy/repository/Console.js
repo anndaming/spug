@@ -3,22 +3,43 @@
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
 import { FullscreenOutlined, FullscreenExitOutlined, LoadingOutlined } from '@ant-design/icons';
-import { Modal, Steps } from 'antd';
-import { X_TOKEN, human_time } from 'libs';
+import { FitAddon } from 'xterm-addon-fit';
+import { Terminal } from 'xterm';
+import { Modal, Steps, Spin } from 'antd';
+import { X_TOKEN, http } from 'libs';
 import styles from './index.module.less';
 import store from './store';
 
 export default observer(function Console() {
+  const el = useRef()
+  const [term] = useState(new Terminal({disableStdin: true}))
   const [fullscreen, setFullscreen] = useState(false);
   const [step, setStep] = useState(0);
-  const [status, setStatus] = useState('process')
+  const [status, setStatus] = useState('process');
+  const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
-    store.outputs = [`${human_time()} 建立连接...        `]
-    let index = 0;
+    let socket;
+    initialTerm()
+    http.get(`/api/repository/${store.record.id}/`)
+      .then(res => {
+        term.write(res.data)
+        setStep(res.step)
+        if (res.status === '1') {
+          socket = _makeSocket(res.index)
+        } else {
+          setStatus('wait')
+        }
+      })
+      .finally(() => setFetching(false))
+    return () => socket && socket.close()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function _makeSocket(index = 0) {
     const token = store.record.spug_version;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/ws/build/${token}/?x-token=${X_TOKEN}`);
@@ -29,16 +50,33 @@ export default observer(function Console() {
       } else {
         index += 1;
         const {data, step, status} = JSON.parse(e.data);
-        if (data !== undefined) store.outputs.push(data);
+        if (data !== undefined) term.write(data);
         if (step !== undefined) setStep(step);
         if (status !== undefined) setStatus(status);
       }
     }
-    return () => {
-      socket.close();
-      store.outputs = []
+    socket.onerror = () => {
+      setStatus('error')
+      term.reset()
+      term.write('\u001b[31mWebsocket connection failed!\u001b[0m')
     }
-  }, [])
+    return socket
+  }
+
+  useEffect(() => {
+    term.fit && term.fit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullscreen])
+
+  function initialTerm() {
+    const fitPlugin = new FitAddon()
+    term.loadAddon(fitPlugin)
+    term.setOption('fontFamily', 'Source Code Pro, Courier New, Courier, Monaco, monospace, PingFang SC, Microsoft YaHei')
+    term.setOption('theme', {background: '#fafafa', foreground: '#000', selection: '#999'})
+    term.open(el.current)
+    term.fit = () => fitPlugin.fit()
+    fitPlugin.fit()
+  }
 
   function handleClose() {
     store.fetchRecords();
@@ -74,7 +112,11 @@ export default observer(function Console() {
         <StepItem title="检出后任务" step={3}/>
         <StepItem title="执行打包" step={4}/>
       </Steps>
-      <pre className={styles.out}>{store.outputs}</pre>
+      <Spin spinning={fetching}>
+        <div className={styles.out}>
+          <div ref={el}/>
+        </div>
+      </Spin>
     </Modal>
   )
 })

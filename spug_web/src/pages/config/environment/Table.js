@@ -38,6 +38,7 @@ function ComTable() {
 
   return (
     <TableCard
+      tKey="ce"
       rowKey="id"
       title="环境列表"
       loading={store.isFetching}
@@ -53,7 +54,6 @@ function ComTable() {
       pagination={{
         showSizeChanger: true,
         showLessItems: true,
-        hideOnSinglePage: true,
         showTotal: total => `共 ${total} 条`,
         pageSizeOptions: ['10', '20', '50', '100']
       }}>
@@ -75,7 +75,7 @@ function ComTable() {
         <Table.Column title="操作" render={info => (
           <Action>
             <Action.Button auth="config.env.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-            <Action.Button auth="config.env.del" onClick={() => handleDelete(info)}>删除</Action.Button>
+            <Action.Button danger auth="config.env.del" onClick={() => handleDelete(info)}>删除</Action.Button>
           </Action>
         )}/>
       )}

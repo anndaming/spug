@@ -17,23 +17,25 @@ class ComTable extends React.Component {
     store.fetchRecords()
   }
 
-  colors = ['green', 'orange', 'red'];
+  colors = ['orange', 'green', 'red'];
 
   moreMenus = (info) => (
     <Menu>
       <Menu.Item>
-        <LinkButton onClick={() => this.handleTest(info)}>执行测试</LinkButton>
+        <LinkButton auth="schedule.schedule.edit" onClick={() => this.handleTest(info)}>执行测试</LinkButton>
       </Menu.Item>
       <Menu.Item>
-        <LinkButton auth="schedule.schedule.edit"
-                    onClick={() => this.handleActive(info)}>{info.is_active ? '禁用任务' : '激活任务'}</LinkButton>
+        <LinkButton
+          auth="schedule.schedule.edit"
+          onClick={() => this.handleActive(info)}>
+          {info.is_active ? '禁用任务' : '激活任务'}</LinkButton>
       </Menu.Item>
       <Menu.Item>
         <LinkButton onClick={() => store.showRecord(info)}>历史记录</LinkButton>
       </Menu.Item>
       <Menu.Divider/>
       <Menu.Item>
-        <LinkButton auth="schedule.schedule.del" onClick={() => this.handleDelete(info)}>删除</LinkButton>
+        <LinkButton danger auth="schedule.schedule.del" onClick={() => this.handleDelete(info)}>删除</LinkButton>
       </Menu.Item>
     </Menu>
   );
@@ -113,7 +115,7 @@ class ComTable extends React.Component {
   handleTest = (text) => {
     Modal.confirm({
       title: '操作确认',
-      content: '立即执行该任务（不影响调度规则，且不会触发失败通知）？',
+      content: '立即以串行模式执行该任务（不影响调度规则，且不会触发失败通知）？',
       onOk: () => http.post(`/api/schedule/${text.id}/`, null, {timeout: 120000})
         .then(res => store.showInfo(text, res))
     })
@@ -122,6 +124,7 @@ class ComTable extends React.Component {
   render() {
     return (
       <TableCard
+        tKey="si"
         rowKey="id"
         title="任务列表"
         loading={store.isFetching}
@@ -142,7 +145,6 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}

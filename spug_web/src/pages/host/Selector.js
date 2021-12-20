@@ -1,30 +1,41 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
 import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Row, Col, Tree, Table, Button, Alert } from 'antd';
+import { Modal, Row, Col, Tree, Table, Button, Space, Input } from 'antd';
+import { includes } from 'libs';
 import store from './store';
+import styles from './index.module.less';
 
 export default observer(function (props) {
   const [loading, setLoading] = useState(false);
   const [group, setGroup] = useState({});
   const [dataSource, setDataSource] = useState([]);
-  const [selectedRowKeys, setSelectedRowKeys] = useState(props.selectedRowKeys || []);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [fKey, setFKey] = useState();
 
   useEffect(() => {
     if (!store.treeData.length) {
-      store.fetchRecords()
-      store.fetchGroups()
-        .then(() => setGroup(store.treeData[0]))
+      store.initial()
+        .then(() => setGroup(store.treeData[0] || {}))
     } else {
-      setGroup(store.treeData[0])
+      setGroup(store.treeData[0] || {})
     }
   }, [])
 
   useEffect(() => {
-    if (group.key) {
-      const records = store.records.filter(x => group.self_host_ids.includes(x.id));
-      setDataSource(records)
-    }
-  }, [group])
+    setSelectedRowKeys(props.selectedRowKeys || [])
+  }, [props.selectedRowKeys])
+
+  useEffect(() => {
+    let records = store.records;
+    if (group.key) records = records.filter(x => group.self_host_ids.includes(x.id));
+    if (fKey) records = records.filter(x => includes(x.name, fKey) || includes(x.hostname, fKey));
+    setDataSource(records)
+  }, [group, fKey])
 
   function treeRender(nodeData) {
     return (
@@ -66,6 +77,7 @@ export default observer(function (props) {
     <Modal
       visible={[undefined, true].includes(props.visible)}
       width={1000}
+      className={styles.selector}
       title={props.title || '主机列表'}
       onOk={handleSubmit}
       confirmLoading={loading}
@@ -80,15 +92,18 @@ export default observer(function (props) {
           />
         </Col>
         <Col span={18}>
-          {selectedRowKeys.length > 0 && (
-            <Alert
-              style={{marginBottom: 12}}
-              message={`已选择 ${selectedRowKeys.length} 台主机`}
-              action={<Button type="link" onClick={() => setSelectedRowKeys([])}>取消选择</Button>}/>
-          )}
+          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 12}}>
+            <Input allowClear style={{width: 260}} placeholder="输入检索" onChange={e => setFKey(e.target.value)}/>
+            <Space hidden={selectedRowKeys.length === 0}>
+              <div>已选择 {selectedRowKeys.length} 台主机</div>
+              <Button type="link" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+            </Space>
+          </div>
           <Table
             rowKey="id"
             dataSource={dataSource}
+            pagination={false}
+            scroll={{y: 480}}
             onRow={record => {
               return {
                 onClick: () => handleClickRow(record)

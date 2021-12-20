@@ -4,8 +4,9 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useState, useEffect } from 'react';
-import { Avatar, Button, Card, Col, Row } from 'antd';
-import { LeftSquareOutlined, RightSquareOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { Avatar, Card, Col, Row, Modal } from 'antd';
+import { LeftSquareOutlined, RightSquareOutlined, EditOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons';
+import { AuthButton } from 'components';
 import NavForm from './NavForm';
 import { http } from 'libs';
 import styles from './index.module.less';
@@ -35,12 +36,22 @@ function NavIndex(props) {
       .then(() => fetchRecords())
   }
 
+  function handleDelete(item) {
+    Modal.confirm({
+      title: '操作确认',
+      content: `确定要删除【${item.title}】？`,
+      onOk: () => http.delete('/api/home/navigation/', {params: {id: item.id}})
+        .then(fetchRecords)
+    })
+  }
+
   return (
     <Card
       title="便捷导航"
       className={styles.nav}
       bodyStyle={{paddingBottom: 0, minHeight: 166}}
-      extra={<Button type="link" onClick={() => setIsEdit(!isEdit)}>{isEdit ? '完成' : '编辑'}</Button>}>
+      extra={<AuthButton auth="admin" type="link"
+                         onClick={() => setIsEdit(!isEdit)}>{isEdit ? '完成' : '编辑'}</AuthButton>}>
       {isEdit ? (
         <Row gutter={24}>
           <Col span={6} style={{marginBottom: 24}}>
@@ -62,6 +73,7 @@ function NavIndex(props) {
                   avatar={<Avatar src={item.logo}/>}
                   title={item.title}
                   description={item.desc}/>
+                <CloseOutlined className={styles.icon} onClick={() => handleDelete(item)}/>
               </Card>
             </Col>
           ))}

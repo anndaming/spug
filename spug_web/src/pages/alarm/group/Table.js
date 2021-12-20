@@ -56,6 +56,7 @@ class ComTable extends React.Component {
   render() {
     return (
       <TableCard
+        tKey="ag"
         rowKey="id"
         title="报警联系组"
         loading={store.isFetching}
@@ -71,7 +72,6 @@ class ComTable extends React.Component {
         pagination={{
           showSizeChanger: true,
           showLessItems: true,
-          hideOnSinglePage: true,
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}>
@@ -83,7 +83,7 @@ class ComTable extends React.Component {
           <Table.Column title="操作" render={info => (
             <Action>
               <Action.Button auth="alarm.group.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="alarm.group.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
+              <Action.Button danger auth="alarm.group.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>
         )}

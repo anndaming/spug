@@ -2,6 +2,7 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
+from django.core.cache import cache
 from libs import ModelMixin, human_datetime
 from django.contrib.auth.hashers import make_password, check_password
 import json
@@ -18,7 +19,8 @@ class User(models.Model, ModelMixin):
     token_expired = models.IntegerField(null=True)
     last_login = models.CharField(max_length=20)
     last_ip = models.CharField(max_length=50)
-    role = models.ForeignKey('Role', on_delete=models.PROTECT, null=True)
+    wx_token = models.CharField(max_length=50, null=True)
+    roles = models.ManyToManyField('Role', db_table='user_role_rel')
 
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey('User', models.PROTECT, related_name='+', null=True)
@@ -32,37 +34,48 @@ class User(models.Model, ModelMixin):
     def verify_password(self, plain_password: str) -> bool:
         return check_password(plain_password, self.password_hash)
 
+    def get_perms_cache(self):
+        return cache.get(f'perms_{self.id}', set())
+
+    def set_perms_cache(self, value=None):
+        cache.set(f'perms_{self.id}', value or set())
+
     @property
     def page_perms(self):
-        if self.role and self.role.page_perms:
-            data = []
-            perms = json.loads(self.role.page_perms)
-            for m, v in perms.items():
-                for p, d in v.items():
-                    data.extend(f'{m}.{p}.{x}' for x in d)
+        data = self.get_perms_cache()
+        if data:
             return data
-        else:
-            return []
+        for item in self.roles.all():
+            if item.page_perms:
+                perms = json.loads(item.page_perms)
+                for m, v in perms.items():
+                    for p, d in v.items():
+                        data.update(f'{m}.{p}.{x}' for x in d)
+        self.set_perms_cache(data)
+        return data
 
     @property
     def deploy_perms(self):
-        perms = json.loads(self.role.deploy_perms) if self.role and self.role.deploy_perms else {}
-        perms.setdefault('apps', [])
-        perms.setdefault('envs', [])
-        return perms
+        data = {'apps': set(), 'envs': set()}
+        for item in self.roles.all():
+            if item.deploy_perms:
+                perms = json.loads(item.deploy_perms)
+                data['apps'].update(perms.get('apps', []))
+                data['envs'].update(perms.get('envs', []))
+        return data
 
     @property
-    def host_perms(self):
-        return json.loads(self.role.host_perms) if self.role and self.role.host_perms else []
-
-    def has_host_perm(self, host_id):
-        if isinstance(host_id, (list, set, tuple)):
-            return self.is_supper or set(host_id).issubset(set(self.host_perms))
-        return self.is_supper or int(host_id) in self.host_perms
+    def group_perms(self):
+        data = set()
+        for item in self.roles.all():
+            if item.group_perms:
+                data.update(json.loads(item.group_perms))
+        return list(data)
 
     def has_perms(self, codes):
-        # return self.is_supper or self.role in codes
-        return self.is_supper
+        if self.is_supper:
+            return True
+        return self.page_perms.intersection(codes)
 
     def __repr__(self):
         return '<User %r>' % self.username
@@ -77,8 +90,7 @@ class Role(models.Model, ModelMixin):
     desc = models.CharField(max_length=255, null=True)
     page_perms = models.TextField(null=True)
     deploy_perms = models.TextField(null=True)
-    host_perms = models.TextField(null=True)
-
+    group_perms = models.TextField(null=True)
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
 
@@ -86,7 +98,7 @@ class Role(models.Model, ModelMixin):
         tmp = super().to_dict(*args, **kwargs)
         tmp['page_perms'] = json.loads(self.page_perms) if self.page_perms else {}
         tmp['deploy_perms'] = json.loads(self.deploy_perms) if self.deploy_perms else {}
-        tmp['host_perms'] = json.loads(self.host_perms) if self.host_perms else []
+        tmp['group_perms'] = json.loads(self.group_perms) if self.group_perms else []
         tmp['used'] = self.user_set.count()
         return tmp
 
@@ -98,11 +110,9 @@ class Role(models.Model, ModelMixin):
         self.deploy_perms = json.dumps(perms)
         self.save()
 
-    def add_host_perm(self, value):
-        perms = json.loads(self.host_perms) if self.host_perms else []
-        perms.append(value)
-        self.host_perms = json.dumps(perms)
-        self.save()
+    def clear_perms_cache(self):
+        for item in self.user_set.all():
+            item.set_perms_cache()
 
     def __repr__(self):
         return '<Role name=%r>' % self.name

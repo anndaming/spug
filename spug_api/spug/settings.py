@@ -34,7 +34,6 @@ ALLOWED_HOSTS = ['127.0.0.1']
 # Application definition
 
 INSTALLED_APPS = [
-    'channels',
     'apps.account',
     'apps.host',
     'apps.setting',
@@ -48,6 +47,7 @@ INSTALLED_APPS = [
     'apps.notify',
     'apps.repository',
     'apps.home',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -103,10 +103,14 @@ TEMPLATES = [
 ]
 
 SCHEDULE_KEY = 'spug:schedule'
+SCHEDULE_WORKER_KEY = 'spug:schedule:worker'
 MONITOR_KEY = 'spug:monitor'
+MONITOR_WORKER_KEY = 'spug:monitor:worker'
+EXEC_WORKER_KEY = 'spug:exec:worker'
 REQUEST_KEY = 'spug:request'
 BUILD_KEY = 'spug:build'
-REPOS_DIR = os.path.join(BASE_DIR, 'repos')
+REPOS_DIR = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), 'repos')
+BUILD_DIR = os.path.join(REPOS_DIR, 'build')
 
 # Internationalization
 # https://docs.djangoproject.com/en/2.2/topics/i18n/
@@ -127,7 +131,7 @@ AUTHENTICATION_EXCLUDES = (
     re.compile('/apis/.*'),
 )
 
-SPUG_VERSION = 'v2.3.14'
+SPUG_VERSION = 'v3.0.1-beta.15'
 
 # override default config
 try:

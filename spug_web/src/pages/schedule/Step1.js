@@ -43,6 +43,24 @@ export default observer(function () {
     Object.assign(store.record, form.getFieldsValue(), {command: cleanCommand(command)})
   }
 
+  let modePlaceholder;
+  switch (store.record.rst_notify.mode) {
+    case '0':
+      modePlaceholder = '已关闭'
+      break
+    case '1':
+      modePlaceholder = 'https://oapi.dingtalk.com/robot/send?access_token=xxx'
+      break
+    case '3':
+      modePlaceholder = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
+      break
+    case '4':
+      modePlaceholder = 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+      break
+    default:
+      modePlaceholder = '请输入'
+  }
+
   return (
     <Form form={form} initialValues={store.record} labelCol={{span: 6}} wrapperCol={{span: 14}}>
       <Form.Item required label="任务类型" style={{marginBottom: 0}}>
@@ -67,7 +85,7 @@ export default observer(function () {
           <span>
             任务执行失败告警通知，
             <a target="_blank" rel="noopener noreferrer"
-               href="https://spug.dev/docs/install-error/#%E9%92%89%E9%92%89%E6%94%B6%E4%B8%8D%E5%88%B0%E9%80%9A%E7%9F%A5%EF%BC%9F">钉钉收不到通知？</a>
+               href="https://spug.cc/docs/install-error/#%E9%92%89%E9%92%89%E6%94%B6%E4%B8%8D%E5%88%B0%E9%80%9A%E7%9F%A5%EF%BC%9F">钉钉收不到通知？</a>
           </span>)}>
         <Input
           value={store.record.rst_notify.value}
@@ -77,12 +95,13 @@ export default observer(function () {
                     onChange={v => store.record.rst_notify.mode = v}>
               <Select.Option value="0">关闭</Select.Option>
               <Select.Option value="1">钉钉</Select.Option>
+              <Select.Option value="4">飞书</Select.Option>
               <Select.Option value="3">企业微信</Select.Option>
               <Select.Option value="2">Webhook</Select.Option>
             </Select>
           )}
           disabled={store.record.rst_notify.mode === '0'}
-          placeholder="请输入"/>
+          placeholder={modePlaceholder}/>
       </Form.Item>
       <Form.Item name="desc" label="备注信息">
         <Input.TextArea placeholder="请输入模板备注信息"/>

@@ -2,24 +2,33 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
-from libs import json_response, JsonParser, Argument, human_datetime
-from libs.channel import Channel
-from apps.exec.models import ExecTemplate
+from django_redis import get_redis_connection
+from django.conf import settings
+from libs import json_response, JsonParser, Argument, human_datetime, auth
+from apps.exec.models import ExecTemplate, ExecHistory
 from apps.host.models import Host
+from apps.account.utils import has_host_perm
+import hashlib
+import uuid
+import json
 
 
 class TemplateView(View):
+    @auth('exec.template.view')
     def get(self, request):
         templates = ExecTemplate.objects.all()
         types = [x['type'] for x in templates.order_by('type').values('type').distinct()]
-        return json_response({'types': types, 'templates': [x.to_dict() for x in templates]})
+        return json_response({'types': types, 'templates': [x.to_view() for x in templates]})
 
+    @auth('exec.template.add|exec.template.edit')
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
             Argument('name', help='请输入模版名称'),
             Argument('type', help='请选择模版类型'),
             Argument('body', help='请输入模版内容'),
+            Argument('interpreter', default='sh'),
+            Argument('host_ids', type=list, handler=json.dumps, default=[]),
             Argument('desc', required=False)
         ).parse(request.body)
         if error is None:
@@ -32,6 +41,7 @@ class TemplateView(View):
                 ExecTemplate.objects.create(**form)
         return json_response(error=error)
 
+    @auth('exec.template.del')
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
@@ -41,23 +51,51 @@ class TemplateView(View):
         return json_response(error=error)
 
 
+@auth('exec.task.do')
 def do_task(request):
     form, error = JsonParser(
         Argument('host_ids', type=list, filter=lambda x: len(x), help='请选择执行主机'),
-        Argument('command', help='请输入执行命令内容')
+        Argument('command', help='请输入执行命令内容'),
+        Argument('interpreter', default='sh')
     ).parse(request.body)
     if error is None:
-        if not request.user.has_host_perm(form.host_ids):
+        if not has_host_perm(request.user, form.host_ids):
             return json_response(error='无权访问主机，请联系管理员')
-        token = Channel.get_token()
+        token, rds = uuid.uuid4().hex, get_redis_connection()
         for host in Host.objects.filter(id__in=form.host_ids):
-            Channel.send_ssh_executor(
+            data = dict(
+                key=host.id,
+                name=host.name,
                 token=token,
+                interpreter=form.interpreter,
                 hostname=host.hostname,
                 port=host.port,
                 username=host.username,
                 command=form.command,
                 pkey=host.private_key,
             )
+            rds.rpush(settings.EXEC_WORKER_KEY, json.dumps(data))
+        form.host_ids.sort()
+        host_ids = json.dumps(form.host_ids)
+        tmp_str = f'{form.interpreter},{host_ids},{form.command}'
+        digest = hashlib.md5(tmp_str.encode()).hexdigest()
+        record = ExecHistory.objects.filter(user=request.user, digest=digest).first()
+        if record:
+            record.updated_at = human_datetime()
+            record.save()
+        else:
+            ExecHistory.objects.create(
+                user=request.user,
+                digest=digest,
+                interpreter=form.interpreter,
+                command=form.command,
+                host_ids=json.dumps(form.host_ids),
+            )
         return json_response(token)
     return json_response(error=error)
+
+
+@auth('exec.task.do')
+def get_histories(request):
+    records = ExecHistory.objects.filter(user=request.user)
+    return json_response([x.to_view() for x in records])
