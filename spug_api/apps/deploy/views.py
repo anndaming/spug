@@ -36,6 +36,8 @@ class RequestView(View):
                 app_host_ids=F('deploy__host_ids'),
                 app_extend=F('deploy__extend'),
                 rep_extra=F('repository__extra'),
+                do_by_user=F('do_by__nickname'),
+                approve_by_user=F('approve_by__nickname'),
                 created_by_user=F('created_by__nickname')):
             tmp = item.to_dict()
             tmp['env_id'] = item.env_id
@@ -49,6 +51,8 @@ class RequestView(View):
             tmp['app_host_ids'] = json.loads(item.app_host_ids)
             tmp['status_alias'] = item.get_status_display()
             tmp['created_by_user'] = item.created_by_user
+            tmp['approve_by_user'] = item.approve_by_user
+            tmp['do_by_user'] = item.do_by_user
             if item.app_extend == '1':
                 tmp['visible_rollback'] = item.deploy_id not in counter
                 counter[item.deploy_id] = True
@@ -159,12 +163,14 @@ class RequestDetailView(View):
                 outputs['local'] = {'id': 'local', 'step': 0, 'data': f'{human_time()} 建立连接...        '}
         if req.deploy.extend == '2':
             outputs['local'] = {'id': 'local', 'step': 0, 'data': f'{human_time()} 建立连接...        '}
-            if req.deploy.extend == '2':
-                s_actions = json.loads(req.deploy.extend_obj.server_actions)
-                h_actions = json.loads(req.deploy.extend_obj.host_actions)
-                if not h_actions:
-                    outputs = {'local': outputs['local']}
-                return json_response({'s_actions': s_actions, 'h_actions': h_actions, 'outputs': outputs})
+            s_actions = json.loads(req.deploy.extend_obj.server_actions)
+            h_actions = json.loads(req.deploy.extend_obj.host_actions)
+            for item in h_actions:
+                if item.get('type') == 'transfer' and item.get('src_mode') == '0':
+                    s_actions.append({'title': '执行打包'})
+            if not h_actions:
+                outputs = {'local': outputs['local']}
+            return json_response({'s_actions': s_actions, 'h_actions': h_actions, 'outputs': outputs})
         return json_response({'outputs': outputs})
 
     @auth('deploy.request.approve')
