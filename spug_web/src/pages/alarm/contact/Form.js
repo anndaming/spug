@@ -29,7 +29,6 @@ export default observer(function () {
 
   function handleTest(mode, name) {
     const value = form.getFieldValue(name)
-    console.log(name, value)
     if (!value) return message.error('请输入后再执行测试')
     setTestLoading(mode)
     http.post('/api/alarm/test/', {mode, value})
@@ -88,7 +87,7 @@ export default observer(function () {
         <Form.Item label="钉钉" extra={<span>
             钉钉收不到通知？请参考
             <a target="_blank" rel="noopener noreferrer"
-               href="https://spug.cc/docs/install-error/#%E9%92%89%E9%92%89%E6%94%B6%E4%B8%8D%E5%88%B0%E9%80%9A%E7%9F%A5%EF%BC%9F">官方文档</a>
+               href="https://spug.cc/docs/use-problem#use-dd">官方文档</a>
           </span>}>
           <Form.Item noStyle name="ding">
             <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx"/>

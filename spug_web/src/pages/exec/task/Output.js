@@ -23,23 +23,22 @@ let gCurrent;
 
 function OutView(props) {
   const el = useRef()
-  const [term, setTerm] = useState(new Terminal())
+  const [term] = useState(new Terminal());
+  const [fitPlugin] = useState(new FitAddon());
   const [current, setCurrent] = useState(Object.keys(store.outputs)[0])
 
   useEffect(() => {
     store.tag = ''
     gCurrent = current
-    const fitPlugin = new FitAddon()
-    term.setOption('disableStdin', false)
+    term.setOption('disableStdin', true)
     term.setOption('fontFamily', 'Source Code Pro, Courier New, Courier, Monaco, monospace, PingFang SC, Microsoft YaHei')
-    term.setOption('theme', {background: '#f0f0f0', foreground: '#000', selection: '#999', cursor: '#f0f0f0'})
+    term.setOption('theme', {background: '#2b2b2b', foreground: '#A9B7C6', cursor: '#2b2b2b'})
     term.loadAddon(fitPlugin)
     term.open(el.current)
     fitPlugin.fit()
     term.write('\x1b[36m### WebSocket connecting ...\x1b[0m')
     const resize = () => fitPlugin.fit();
     window.addEventListener('resize', resize)
-    setTerm(term)
 
     return () => window.removeEventListener('resize', resize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,6 +54,7 @@ function OutView(props) {
       }
       term.write(message)
       socket.send('ok');
+      fitPlugin.fit()
     }
     socket.onmessage = e => {
       if (e.data === 'pong') {
@@ -145,8 +145,8 @@ function OutView(props) {
           <div className={style.title}>{store.outputs[current].title}</div>
           <CodeOutlined className={style.icon} onClick={() => openTerminal(current)}/>
         </div>
-        <div className={style.term}>
-          <div ref={el} style={{width: '100%'}}/>
+        <div className={style.termContainer}>
+          <div ref={el} className={style.term}/>
         </div>
       </div>
     </div>

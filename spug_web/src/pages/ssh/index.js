@@ -5,16 +5,29 @@
  */
 import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
-import { Tabs, Tree, Input, Spin, Button } from 'antd';
-import { FolderOutlined, FolderOpenOutlined, CloudServerOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
+import { Tabs, Tree, Input, Spin, Dropdown, Menu, Button, Drawer } from 'antd';
+import {
+  FolderOutlined,
+  FolderOpenOutlined,
+  CloudServerOutlined,
+  SearchOutlined,
+  SyncOutlined,
+  CopyOutlined,
+  ReloadOutlined,
+  VerticalAlignBottomOutlined,
+  VerticalAlignMiddleOutlined,
+  CloseOutlined,
+  LeftOutlined,
+} from '@ant-design/icons';
 import { NotFound, AuthButton } from 'components';
 import Terminal from './Terminal';
 import FileManager from './FileManager';
 import { http, hasPermission, includes } from 'libs';
 import styles from './index.module.less';
-import LogoSpugText from 'layout/logo-spug-txt.png';
+import LogoSpugText from 'layout/logo-spug-white.png';
 import lds from 'lodash';
 
+let posX = 0
 
 function WebSSH(props) {
   const [visible, setVisible] = useState(false);
@@ -26,6 +39,8 @@ function WebSSH(props) {
   const [hosts, setHosts] = useState([]);
   const [activeId, setActiveId] = useState();
   const [hostId, setHostId] = useState();
+  const [width, setWidth] = useState(280);
+  const [sshMode] = useState(hasPermission('host.console.view'))
 
   useEffect(() => {
     window.document.title = 'Spug web terminal'
@@ -77,11 +92,17 @@ function WebSSH(props) {
       .finally(() => setFetching(false))
   }
 
-  function _openNode(node) {
-    node.vId = String(new Date().getTime())
-    hosts.push(node);
+  function _openNode(node, replace) {
+    const newNode = {...node}
+    newNode.vId = String(new Date().getTime())
+    if (replace) {
+      const index = lds.findIndex(hosts, {vId: node.vId})
+      if (index >= 0) hosts[index] = newNode
+    } else {
+      hosts.push(newNode);
+    }
     setHosts(lds.cloneDeep(hosts))
-    setActiveId(node.vId)
+    setActiveId(newNode.vId)
   }
 
   function handleSelect(e) {
@@ -90,12 +111,13 @@ function WebSSH(props) {
     }
   }
 
-  function handleRemove(key, action) {
-    if (action === 'remove') {
-      const index = lds.findIndex(hosts, x => x.vId === key);
-      if (index !== -1) {
-        hosts.splice(index, 1);
-        setHosts(lds.cloneDeep(hosts));
+  function handleRemove(key, target) {
+    const index = lds.findIndex(hosts, x => x.vId === key);
+    if (index === -1) return;
+    switch (target) {
+      case 'self':
+        hosts.splice(index, 1)
+        setHosts([...hosts])
         if (hosts.length > index) {
           setActiveId(hosts[index].vId)
         } else if (hosts.length) {
@@ -103,7 +125,22 @@ function WebSSH(props) {
         } else {
           setActiveId(undefined)
         }
-      }
+        break
+      case 'right':
+        hosts.splice(index + 1, hosts.length)
+        setHosts([...hosts])
+        setActiveId(key)
+        break
+      case 'other':
+        setHosts([hosts[index]])
+        setActiveId(key)
+        break
+      case 'all':
+        setHosts([])
+        setActiveId(undefined)
+        break
+      default:
+        break
     }
   }
 
@@ -125,6 +162,49 @@ function WebSSH(props) {
     }
   }
 
+  function handleMouseMove(e) {
+    if (posX) {
+      setWidth(e.pageX);
+    }
+  }
+
+  function handeTabAction(action, host, e) {
+    if (e) e.stopPropagation()
+    switch (action) {
+      case 'copy':
+        return _openNode(host)
+      case 'reconnect':
+        return _openNode(host, true)
+      case 'rClose':
+        return handleRemove(host.vId, 'right')
+      case 'oClose':
+        return handleRemove(host.vId, 'other')
+      case 'aClose':
+        return handleRemove(host.vId, 'all')
+      default:
+        break
+    }
+  }
+
+  function TabRender(props) {
+    const host = props.host;
+    return (
+      <Dropdown trigger={['contextMenu']} overlay={(
+        <Menu onClick={({key, domEvent}) => handeTabAction(key, host, domEvent)}>
+          <Menu.Item key="copy" icon={<CopyOutlined/>}>复制窗口</Menu.Item>
+          <Menu.Item key="reconnect" icon={<ReloadOutlined/>}>重新连接</Menu.Item>
+          <Menu.Item key="rClose"
+                     icon={<VerticalAlignBottomOutlined style={{transform: 'rotate(90deg)'}}/>}>关闭右侧</Menu.Item>
+          <Menu.Item key="oClose"
+                     icon={<VerticalAlignMiddleOutlined style={{transform: 'rotate(90deg)'}}/>}>关闭其他</Menu.Item>
+          <Menu.Item key="aClose" icon={<CloseOutlined/>}>关闭所有</Menu.Item>
+        </Menu>
+      )}>
+        <div className={styles.tabRender} onDoubleClick={() => handeTabAction('copy', host)}>{host.title}</div>
+      </Dropdown>
+    )
+  }
+
   const spug_web_terminal =
     '                                                 __       __                          _                __\n' +
     '   _____ ____   __  __ ____ _   _      __ ___   / /_     / /_ ___   _____ ____ ___   (_)____   ____ _ / /\n' +
@@ -133,9 +213,10 @@ function WebSSH(props) {
     '/____// .___/ \\__,_/ \\__, /    |__/|__/ \\___//_.___/   \\__/ \\___//_/   /_/ /_/ /_//_//_/ /_/ \\__,_//_/   \n' +
     '     /_/            /____/                                                                               \n'
 
-  return hasPermission('host.console.view') ? (
-    <div className={styles.container}>
-      <div className={styles.sider}>
+  console.log(sshMode)
+  return hasPermission('host.console.view|host.console.list') ? (
+    <div className={styles.container} onMouseUp={() => posX = 0} onMouseMove={handleMouseMove}>
+      <div className={styles.sider} style={{width}}>
         <div className={styles.logo}>
           <img src={LogoSpugText} alt="logo"/>
         </div>
@@ -144,14 +225,17 @@ function WebSSH(props) {
             <Input allowClear className={styles.search} prefix={<SearchOutlined style={{color: '#999'}}/>}
                    placeholder="输入检索" onChange={e => setSearchValue(e.target.value)}/>
             <Button icon={<SyncOutlined/>} type="link" loading={fetching} onClick={fetchNodes}/>
-            <Tree.DirectoryTree
-              defaultExpandAll
-              expandAction="doubleClick"
-              treeData={treeData}
-              icon={renderIcon}
-              onSelect={(k, e) => handleSelect(e)}/>
+            {treeData.length > 0 ? (
+              <Tree.DirectoryTree
+                defaultExpandAll
+                expandAction="doubleClick"
+                treeData={treeData}
+                icon={renderIcon}
+                onSelect={(k, e) => handleSelect(e)}/>
+            ) : null}
           </Spin>
         </div>
+        <div className={styles.split} onMouseDown={e => posX = e.pageX}/>
       </div>
       <div className={styles.content}>
         <Tabs
@@ -159,25 +243,44 @@ function WebSSH(props) {
           activeKey={activeId}
           type="editable-card"
           onTabClick={key => setActiveId(key)}
-          onEdit={handleRemove}
-          tabBarExtraContent={<AuthButton
-            auth="host.console.list"
-            type="primary"
-            disabled={!activeId}
-            style={{marginRight: 5}}
-            onClick={handleOpenFileManager}
-            icon={<FolderOpenOutlined/>}>文件管理器</AuthButton>}>
+          onEdit={(key, action) => action === 'remove' ? handleRemove(key, 'self') : null}
+          style={{background: '#fff', width: `calc(100vw - ${width}px)`}}
+          tabBarExtraContent={hosts.length === 0 ? (
+            <div className={styles.tips}>小提示：双击标签快速复制窗口，右击标签展开更多操作。</div>
+          ) : sshMode ? (
+            <AuthButton
+              auth="host.console.list"
+              type="link"
+              disabled={!activeId}
+              style={{marginRight: 5}}
+              onClick={handleOpenFileManager}
+              icon={<LeftOutlined/>}>文件管理器</AuthButton>
+          ) : null}>
           {hosts.map(item => (
-            <Tabs.TabPane key={item.vId} tab={item.title}>
-              <Terminal id={item.id} vId={item.vId} activeId={activeId}/>
+            <Tabs.TabPane key={item.vId} tab={<TabRender host={item}/>}>
+              {sshMode ? (
+                <Terminal id={item.id} vId={item.vId} activeId={activeId}/>
+              ) : (
+                <div className={styles.fileManger}>
+                  <FileManager id={item.id}/>
+                </div>
+              )}
             </Tabs.TabPane>
           ))}
         </Tabs>
         {hosts.length === 0 && (
-          <pre className={styles.fig}>{spug_web_terminal}</pre>
+          <pre className={sshMode ? styles.fig : styles.fig2}>{spug_web_terminal}</pre>
         )}
       </div>
-      <FileManager id={hostId} visible={visible} onClose={() => setVisible(false)}/>
+      <Drawer
+        title="文件管理器"
+        placement="right"
+        width={900}
+        className={styles.drawerContainer}
+        visible={visible}
+        onClose={() => setVisible(false)}>
+        <FileManager id={hostId}/>
+      </Drawer>
     </div>
   ) : (
     <div style={{height: '100vh'}}>

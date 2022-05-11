@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Modal, Button, Upload, message } from 'antd';
+import { Form, Input, Modal, Button, Upload, Avatar, message } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import { http } from 'libs';
 import styles from './index.module.less';
@@ -64,13 +64,13 @@ function NavForm(props) {
     <Modal
       visible
       title={`${record.id ? '编辑' : '新建'}链接`}
-      afterClose={() => console.log('after close')}
       onCancel={props.onCancel}
       confirmLoading={loading}
       onOk={handleSubmit}>
       <Form form={form} initialValues={record} labelCol={{span: 5}} wrapperCol={{span: 18}}>
         <Form.Item required label="导航图标">
           <Upload
+            accept="image/*"
             listType="picture-card"
             fileList={fileList}
             beforeUpload={beforeUpload}
@@ -83,6 +83,14 @@ function NavForm(props) {
               </div>
             )}
           </Upload>
+          <div className={styles.imgExample}>
+            {['gitlab', 'gitee', 'grafana', 'prometheus', 'wiki'].map(item => (
+              <Avatar
+                key={item}
+                src={`/resource/${item}.png`}
+                onClick={() => setFileList([{uid: 0, thumbUrl: `/resource/${item}.png`}])}/>
+            ))}
+          </div>
         </Form.Item>
         <Form.Item required name="title" label="导航标题">
           <Input placeholder="请输入"/>

@@ -9,11 +9,23 @@ import { BranchesOutlined, BuildOutlined, TagOutlined, PlusOutlined, TagsOutline
 import { Radio, Modal, Popover, Tag, Popconfirm, Tooltip, message } from 'antd';
 import { http, hasPermission } from 'libs';
 import { Action, AuthButton, TableCard } from 'components';
+import S from './index.module.less';
 import store from './store';
+
+function DeployConfirm() {
+  return (
+    <div>
+      <div>确认发布方式</div>
+      <div style={{color: '#999', fontSize: 12}}>补偿：仅发布上次发布失败的主机。</div>
+      <div style={{color: '#999', fontSize: 12}}>全量：再次发布所有主机。</div>
+    </div>
+  )
+}
 
 function ComTable() {
   const columns = [{
     title: '申请标题',
+    className: S.min180,
     render: info => (
       <div>
         {info.type === '2' && <Tooltip title="回滚发布"><Tag color="#f50">R</Tag></Tooltip>}
@@ -24,12 +36,15 @@ function ComTable() {
     )
   }, {
     title: '应用',
+    className: S.min120,
     dataIndex: 'app_name',
   }, {
     title: '发布环境',
+    className: S.min120,
     dataIndex: 'env_name',
   }, {
     title: '版本',
+    className: S.min155,
     render: info => {
       if (info['app_extend'] === '1') {
         const [ext1] = info.extra || info.rep_extra;
@@ -48,7 +63,46 @@ function ComTable() {
       }
     }
   }, {
+    title: '申请人',
+    className: S.min120,
+    dataIndex: 'created_by_user',
+    hide: true
+  }, {
+    title: '申请时间',
+    className: S.min120,
+    dataIndex: 'created_at',
+    sorter: (a, b) => a['created_at'].localeCompare(b['created_at']),
+    render: v => <Tooltip title={v}>{v ? v.substring(0, 10) : null}</Tooltip>,
+    hide: true
+  }, {
+    title: '审核人',
+    className: S.min120,
+    dataIndex: 'approve_by_user',
+    hide: true
+  }, {
+    title: '审核时间',
+    className: S.min120,
+    dataIndex: 'approve_at',
+    render: v => <Tooltip title={v}>{v ? v.substring(0, 10) : null}</Tooltip>,
+  }, {
+    title: '发布人',
+    className: S.min120,
+    dataIndex: 'do_by_user',
+    hide: true
+  }, {
+    title: '发布时间',
+    className: S.min120,
+    dataIndex: 'do_at',
+    render: v => <Tooltip title={v}>{v ? v.substring(0, 10) : null}</Tooltip>,
+    hide: true
+  }, {
+    title: '备注',
+    className: S.min120,
+    dataIndex: 'desc',
+  }, {
     title: '状态',
+    fixed: 'right',
+    className: S.min120,
     render: info => {
       if (info.status === '-1' && info.reason) {
         return <Popover title="驳回原因:" content={info.reason}>
@@ -69,43 +123,15 @@ function ComTable() {
       }
     }
   }, {
-    title: '申请人',
-    dataIndex: 'created_by_user',
-    hide: true
-  }, {
-    title: '申请时间',
-    dataIndex: 'created_at',
-    sorter: (a, b) => a['created_at'].localeCompare(b['created_at']),
-    hide: true
-  }, {
-    title: '审核人',
-    dataIndex: 'approve_by_user',
-    hide: true
-  }, {
-    title: '审核时间',
-    dataIndex: 'approve_at'
-  }, {
-    title: '发布人',
-    dataIndex: 'do_by_user',
-    hide: true
-  }, {
-    title: '发布时间',
-    dataIndex: 'do_at',
-    hide: true
-  }, {
-    title: '备注',
-    dataIndex: 'desc',
-  }, {
     title: '操作',
-    className: hasPermission('deploy.request.do|deploy.request.edit|deploy.request.approve|deploy.request.del') ? null : 'none',
+    fixed: 'right',
+    className: hasPermission('deploy.request.do|deploy.request.edit|deploy.request.approve|deploy.request.del') ? S.min180 : 'none',
     render: info => {
       switch (info.status) {
         case '-3':
           return <Action>
             <Action.Button auth="deploy.request.do" onClick={() => store.readConsole(info)}>查看</Action.Button>
-            <Popconfirm title="确认要执行该发布申请？" onConfirm={e => handleDeploy(e, info)}>
-              <Action.Button auth="deploy.request.do">发布</Action.Button>
-            </Popconfirm>
+            <DoAction info={info}/>
             {info.visible_rollback && (
               <Action.Button auth="deploy.request.do" onClick={() => store.rollback(info)}>回滚</Action.Button>
             )}
@@ -130,9 +156,7 @@ function ComTable() {
           </Action>;
         case '1':
           return <Action>
-            <Popconfirm title="确认要执行该发布申请？" onConfirm={e => handleDeploy(e, info)}>
-              <Action.Button auth="deploy.request.do">发布</Action.Button>
-            </Popconfirm>
+            <DoAction info={info}/>
             <Action.Button auth="deploy.request.del" onClick={() => handleDelete(info)}>删除</Action.Button>
           </Action>;
         case '2':
@@ -144,6 +168,21 @@ function ComTable() {
       }
     }
   }];
+
+  function DoAction(props) {
+    const {host_ids, fail_host_ids} = props.info;
+    return (
+      <Popconfirm
+        title={<DeployConfirm/>}
+        okText="全量"
+        cancelText="补偿"
+        cancelButtonProps={{disabled: [0, host_ids.length].includes(fail_host_ids.length)}}
+        onConfirm={e => handleDeploy(e, props.info, 'all')}
+        onCancel={e => handleDeploy(e, props.info, 'fail')}>
+        <Action.Button auth="deploy.request.do">发布</Action.Button>
+      </Popconfirm>
+    )
+  }
 
   function handleDelete(info) {
     Modal.confirm({
@@ -159,16 +198,19 @@ function ComTable() {
     })
   }
 
-  function handleDeploy(e, info) {
+  function handleDeploy(e, info, mode) {
+    info.mode = mode
     store.showConsole(info);
   }
 
   return (
     <TableCard
       tKey="dr"
-      rowKey="id"
+      rowKey={row => row.key || row.id}
       title="申请列表"
       columns={columns}
+      scroll={{x: 1500}}
+      tableLayout="auto"
       loading={store.isFetching}
       dataSource={store.dataSource}
       onReload={store.fetchRecords}

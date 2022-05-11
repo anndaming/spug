@@ -34,6 +34,7 @@
 
   .right {
     width: 40%;
+    max-width: 600px;
     display: flex;
     flex-direction: column;
     background-color: #fafafa;
@@ -253,11 +254,15 @@
     }
 
 
-    .term {
-      flex: 1;
-      background-color: #f0f0f0;
-      padding: 8px 0 8px 12px;
-      border-radius: 2px;
+    .termContainer {
+      background-color: #2b2b2b;
+      padding: 8px 0 4px 12px;
+      border-radius: 4px;
+
+      .term {
+        width: 100%;
+        height: calc(100vh - 300px);
+      }
     }
   }
 }

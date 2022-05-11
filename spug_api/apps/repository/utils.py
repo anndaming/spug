@@ -23,7 +23,7 @@ def dispatch(rep: Repository, helper=None):
     if not helper:
         rds = get_redis_connection()
         rds_key = f'{settings.BUILD_KEY}:{rep.spug_version}'
-        helper = Helper(rds, rds_key)
+        helper = Helper.make(rds, rds_key)
         rep.save()
     try:
         api_token = uuid.uuid4().hex
@@ -38,6 +38,7 @@ def dispatch(rep: Repository, helper=None):
             SPUG_ENV_ID=str(rep.env_id),
             SPUG_ENV_KEY=rep.env.key,
             SPUG_VERSION=rep.version,
+            SPUG_BUILD_VERSION=rep.spug_version,
             SPUG_API_TOKEN=api_token,
             SPUG_REPOS_DIR=REPOS_DIR,
         )

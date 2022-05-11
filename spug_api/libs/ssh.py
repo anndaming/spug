@@ -3,11 +3,23 @@
 # Released under the AGPL-3.0 License.
 from paramiko.client import SSHClient, AutoAddPolicy
 from paramiko.rsakey import RSAKey
+from paramiko.transport import Transport
 from paramiko.ssh_exception import AuthenticationException
 from io import StringIO
-import base64
+from uuid import uuid4
 import time
 import re
+
+Transport._preferred_pubkeys = (
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "ecdsa-sha2-nistp384",
+    "ecdsa-sha2-nistp521",
+    "ssh-rsa",
+    "rsa-sha2-256",
+    "rsa-sha2-512",
+    "ssh-dss",
+)
 
 
 class SSH:
@@ -17,8 +29,8 @@ class SSH:
         self.client = None
         self.channel = None
         self.sftp = None
+        self.exec_file = None
         self.eof = 'Spug EOF 2108111926'
-        self.already_init = False
         self.default_env = self._make_env_command(default_env)
         self.regex = re.compile(r'Spug EOF 2108111926 (-?\d+)[\r\n]?')
         self.arguments = {
@@ -28,6 +40,8 @@ class SSH:
             'password': password,
             'pkey': RSAKey.from_private_key(StringIO(pkey)) if isinstance(pkey, str) else pkey,
             'timeout': connect_timeout,
+            'allow_agent': False,
+            'look_for_keys': False,
             'banner_timeout': 30
         }
 
@@ -114,11 +128,11 @@ class SSH:
 
     def put_file(self, local_path, remote_path):
         sftp = self._get_sftp()
-        sftp.put(local_path, remote_path)
+        sftp.put(local_path, remote_path, confirm=False)
 
     def put_file_by_fl(self, fl, remote_path, callback=None):
         sftp = self._get_sftp()
-        sftp.putfo(fl, remote_path, callback=callback)
+        sftp.putfo(fl, remote_path, callback=callback, confirm=False)
 
     def list_dir_attr(self, path):
         sftp = self._get_sftp()
@@ -178,19 +192,17 @@ class SSH:
 
     def _handle_command(self, command, environment):
         new_command = commands = ''
-        if not self.already_init:
-            commands = 'export SPUG_EXEC_FILE=$(mktemp)\n'
-            commands += 'trap \'rm -f $SPUG_EXEC_FILE\' EXIT\n'
-            self.already_init = True
+        if not self.exec_file:
+            self.exec_file = f'/tmp/{uuid4().hex}'
+            commands += f'trap \'rm -f {self.exec_file}\' EXIT\n'
 
         env_command = self._make_env_command(environment)
         if env_command:
             new_command += f'{env_command}\n'
         new_command += command
         new_command += f'\necho {self.eof} $?\n'
-        b64_command = base64.standard_b64encode(new_command.encode())
-        commands += f'echo {b64_command.decode()} | base64 -di > $SPUG_EXEC_FILE\n'
-        commands += 'source $SPUG_EXEC_FILE\n'
+        self.put_file_by_fl(StringIO(new_command), self.exec_file)
+        commands += f'source {self.exec_file}\n'
         return commands
 
     def _decode(self, content):
