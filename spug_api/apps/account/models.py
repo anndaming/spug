@@ -62,6 +62,7 @@ class User(models.Model, ModelMixin):
                 perms = json.loads(item.deploy_perms)
                 data['apps'].update(perms.get('apps', []))
                 data['envs'].update(perms.get('envs', []))
+        data['apps'].update(x.id for x in self.app_set.all())
         return data
 
     @property
@@ -123,8 +124,12 @@ class Role(models.Model, ModelMixin):
 
 
 class History(models.Model, ModelMixin):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    username = models.CharField(max_length=100, null=True)
+    type = models.CharField(max_length=20, default='default')
     ip = models.CharField(max_length=50)
+    agent = models.CharField(max_length=255, null=True)
+    message = models.CharField(max_length=255, null=True)
+    is_success = models.BooleanField(default=True)
     created_at = models.CharField(max_length=20, default=human_datetime)
 
     class Meta:

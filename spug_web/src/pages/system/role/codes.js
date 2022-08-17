@@ -53,6 +53,12 @@ export default [{
       {key: 'edit', label: '编辑模板'},
       {key: 'del', label: '删除模板'},
     ]
+  }, {
+    key: 'transfer',
+    label: '文件分发',
+    perms: [
+      {key: 'do', label: '文件分发'}
+    ]
   }]
 }, {
   key: 'deploy',
@@ -62,7 +68,7 @@ export default [{
     label: '应用管理',
     perms: [
       {key: 'view', label: '查看应用'},
-      // {key: 'add', label: '新建应用'},
+      {key: 'add', label: '新建应用'},
       {key: 'edit', label: '编辑应用'},
       {key: 'del', label: '删除应用'},
       {key: 'config', label: '查看配置'},
